@@ -1,0 +1,75 @@
+\section{CONFIGURATION}
+\label{sec:config}
+
+\subsection{Main files}
+Inside the working directory tree, the executables and configuration files that a user is expected to
+interact with are the following:
+\begin{table}[H]
+\centering
+\begin{tabular}{llll}
+\hline
+\multirow{7}{*}{bin/}\hspace{1.2cm}\ldelim\{{7}{10pt} & run.sh & :main nightly executable\\
+ & pgdgen.sh & :one-time PGD (orography) generation\\
+ & prep\_list.sh & :generates reference legacy-style scripts, called by run.sh\\
+ & postproc.sh & :DIAG/FICVAL extraction, sourced by run.sh\\
+ & backup.sh & :upload/backup, sourced by run.sh\\
+ & plot\_python.sh & :plotting, sourced by run.sh\\
+ & Run\_lista.sh & :Run in postprocessing on a sequence of dates\\
+\multirow{6}{*}{bin/conf.d/}\ldelim\{{6}{10pt} & globals.var & :main configuration file (paths, logging, MNH/MPI setup)\\
+ & pgd.var & :orography/PGD generation configuration\\
+ & run.var & :simulation, spatial and DIAG/plot extraction parameters\\
+ & times.var & :date, time and plot-window configuration\\
+ & filedef.var & :init file naming/retrieval logic (mostly scripted)\\
+ & backup.var & :upload and backup configuration\\
+\hline
+\end{tabular}
+\end{table}
+Other files under \texttt{bin/} and \texttt{bin/conf.d/} not listed here (and not described in
+Section~\ref{sec:executables}) are internal helpers, legacy variants or testing scripts; they should
+not normally need to be touched.
+
+Further sub-directories of \texttt{bin/conf.d/} are used as follows:
+\begin{lstlisting}
+bin/conf.d/namelist/cen4th/   : Meso-NH namelist templates actually used by this
+                                 configuration (centred 4th-order advection scheme;
+                                 referenced by NLDIR in globals.var)
+bin/conf.d/namelist/weno3/    : an alternative (WENO 3rd-order advection scheme)
+                                 namelist set, physically present but not referenced
+                                 by any current .var file -- a leftover from a
+                                 different configuration this code was derived from
+\end{lstlisting}
+Most Meso-NH namelist parameters are set from \texttt{run.var}/\texttt{times.var} at run time; the
+namelist templates only need to be edited directly for parameters that are not exposed as \texttt{.var}
+variables. This should only be done by someone familiar with Meso-NH namelists.\\
+\textbf{NOTE CAREFULLY:} namelist templates are edited through keyword substitution. All strings that end with \texttt{\_VALUE} or \texttt{\_FILE} are typically edited automatically. Do not change them if you do not want to make automatic substitution to silently fail.\\
+
+\begin{lstlisting}
+bin/conf.d/corrections/       : per-parameter multiplicative/additive calibration tables,
+                                 applied during postprocessing (plot_python.sh)
+\end{lstlisting}
+Each file is a small ASCII table: one line of \texttt{MULT SUM}, or of \texttt{MULT SUM START END} for
+time-windowed corrections. Files are named after the parameter they calibrate (e.g.\
+\texttt{pwv\_integ.var}, \texttt{tau\_integ.var}), with some parameters also carrying seasonal variants.
+Several parameters have both a default
+table and an \texttt{\_OS18} variant; both are actively used by \texttt{plot\_python.sh} to compute an
+alternative (``OS18'') product -- for seeing, isoplanatic angle and coherence time -- alongside the
+default one; see the note on \texttt{plot\_python.sh} in Section~\ref{sec:executables}.
+\begin{lstlisting}
+bin/conf.d/utils/              : compiled fortran helper programs and their sources
+                                  (source_* sub-directories, built by Make_All.sh, see
+                                  Section 3), the Python plotting suite (Plot_python/),
+                                  the Gmail-API mail senders, small ephemeris helpers
+                                  (Sunset.py, Sunrise.py, Dawn.py, Dusk.py) and
+                                  common_functions.func (the bash functions -- log,
+                                  error, error_soft, check_directory, etc. -- sourced by
+                                  every script in bin/)
+\end{lstlisting}
+
+\subsection{How to read the parameter tables below}
+For each configuration file, parameters are listed with a short description and their current value,
+shown as \texttt{[current: ...]} -- i.e.\ whatever this particular installation's configuration files
+happen to contain today, given purely as a worked example of the kind of value expected, not as a
+recommended or universal default. A variable not documented below is either a purely internal/scripted
+variable (computed from other variables, not meant to be edited), a debug switch, or an
+undocumented/experimental feature -- such variables should only be changed by someone who has read the
+corresponding script.

@@ -1,0 +1,176 @@
+\section{SYSTEM ARCHITECTURE AND WORKFLOW}
+\label{sec:usage}
+
+\subsection{Overview}
+This edition of the automation runs \textbf{one Meso-NH configuration, once per night}: a single set of
+nested domains (\texttt{NESTING} in \texttt{globals.var}, currently 3 -- outer domain plus two nested
+levels), driven by one self-contained \texttt{bin/} tree and one \texttt{bin/conf.d/*.var} configuration
+(Section~\ref{sec:config}). There is no built-in mechanism in this codebase for running several
+configurations in sequence or for having one run's output conditionally replace another's; if a
+deployment needs that (e.g.\ a coarser and a finer-resolution configuration chained together), it has to
+be implemented as an external wrapper around this code, and documented separately.
+
+\subsection{Manual and scheduled operation}
+The whole procedure is a single entry point, \texttt{bin/run.sh}, invoked with no arguments:
+\begin{lstlisting}
+cd bin
+./run.sh
+\end{lstlisting}
+For nightly unattended operation this is normally launched from cron, e.g.:
+\begin{lstlisting}
+0 20 * * * /path/to/bin/run.sh > /path/to/sim.out 2>&1
+\end{lstlisting}
+\texttt{run.sh} locates its own configuration via \texttt{conf.d/globals.var} relative to its own path,
+so it must be run from within \texttt{bin/} (or by an absolute path that still resolves correctly). The
+date being processed is controlled by \texttt{YEAR}/\texttt{MONTH}/\texttt{DAY} in \texttt{times.var}
+(Section~\ref{sec:config}): under normal operation these are meant to track ``today'' (they default to
+the system date at the top of the file), but \textbf{a hand-set override further down the file
+currently takes precedence} -- see the note in Section~\ref{sec:config} on \texttt{times.var}. To
+process a specific night (whether for the scheduled run or for manual reprocessing of a past date), edit
+that override directly. There is no external process that substitutes today's date into the
+configuration automatically; whatever \texttt{times.var} contains at the time \texttt{run.sh} sources it
+is what gets used.
+
+\subsection{Workflow (\texttt{run.sh})}
+\texttt{bin/run.sh} performs, in order:
+\begin{enumerate}
+  \item \textbf{Startup}: kills any leftover Meso-NH-related processes from a previous, possibly stuck
+        run (\texttt{pkill} on the executable names from \texttt{globals.var}), rotates the log
+        directory, and sources \texttt{times.var} then \texttt{run.var}.
+  \item \textbf{Initialization file retrieval}: sources \texttt{filedef.var} directly -- \textbf{this is
+        where the actual wait happens}, in \texttt{run.sh}'s own process. \texttt{filedef.var}'s logic
+        waits for the raw initialization files for the requested forcing hours to appear in
+        \texttt{INIRAWDIR}, retries downloading them from a configurable backup server over SSH if they
+        are late or missing, verifies each file's MD5 checksum, and merges the orography information
+        from the analysis file into each forecast file with \texttt{grib\_copy} -- aborting with an
+        alert mail if the files still have not arrived after a configurable timeout (\texttt{TIMELIMIT}
+        in \texttt{times.var}). \texttt{run.sh} then sources \texttt{backup.var}.
+  \item \textbf{Reference script generation}: only once the previous step has confirmed the
+        initialization files are present, and only if \texttt{TESTRUN=0} and \texttt{PREPLISTTRUE=1}
+        (and \texttt{NOPREP=0}\slash\texttt{NORUN=0}), \texttt{run.sh} invokes \texttt{bin/prep\_list.sh} as
+        a sub-process. As explained in full in Section~\ref{sec:executables},
+        \texttt{prep\_list.sh}'s own purpose is to generate a pair of self-contained, legacy-style
+        reference scripts, not to fetch files; it re-sources \texttt{filedef.var} itself (in its own,
+        separate shell) purely to know which files to write into those scripts, and since they are
+        already present by this point, this second sourcing does not itself wait on anything.
+        \texttt{run.sh} then moves the two generated scripts into \texttt{LOGDIR}.
+  \item \textbf{PREP\_REAL phase}: for every nested domain, runs Meso-NH's \texttt{PREP\_REAL\_CASE}
+        (and \texttt{SPAWNING} for nested domains) to build the initial and boundary conditions.
+  \item \textbf{EXE phase}: runs the \texttt{MESONH} executable under \texttt{mpirun}, producing the
+        raw \texttt{.lfi} model output for the whole forecast segment.
+  \item \textbf{POSTPROC phase} (\texttt{bin/postproc.sh}, sourced): runs the \texttt{DIAG} step and
+        \texttt{conv2dia}\slash\texttt{diaprog} to derive the astroclimatic parameters (optical
+        turbulence $C_N^2$ and integrated parameters, wind, temperature, relative humidity, PWV, etc.)
+        and to extract them as ASCII (FICVAL vertical profiles/cuts and 2D ground maps) at the points,
+        domains and heights configured in \texttt{run.var}.
+  \item \textbf{PLOT phase} (\texttt{bin/plot\_python.sh}, sourced): runs the Python plotting suite
+        under \texttt{bin/conf.d/utils/Plot\_python/} (one script per parameter/plot type) to turn the
+        ASCII output into the delivered figures.
+  \item \textbf{Compression}: optionally \texttt{bzip2}-compresses the raw PREP\_REAL, RUN and DIAG
+        \texttt{.lfi} outputs in parallel (GNU \texttt{parallel}), controlled by
+        \texttt{DOZIPREAL}\slash\texttt{DOZIPOUT}\slash\texttt{DOZIPDIAG} in \texttt{globals.var}.
+  \item \textbf{Move to staging}: moves the outputs selected for preservation
+        (\texttt{BACKUP\_REAL}\slash\texttt{BACKUP\_RUN}\slash\texttt{BACKUP\_DIAG}\slash
+        \texttt{BACKUP\_POSTPROC}\slash\texttt{BACKUP\_LOG} switches in \texttt{backup.var}) into a
+        per-run staging directory (\texttt{PREPARE\_DIR}); everything else is deleted.
+  \item \textbf{Upload/backup} (\texttt{bin/backup.sh}, sourced, unless deferred with
+        \texttt{BACKUPLATER}): rsyncs the figures and ASCII ground outputs to the configured remote
+        server(s) (Section~\ref{sec:config}, \texttt{backup.var}), and/or keeps a local copy, according
+        to \texttt{backup.var}.
+  \item \textbf{Notification and hand-off}: sends a completion e-mail with a per-phase timing summary;
+        writes the day's configuration file for the short-timescale component into the \texttt{config/}
+        subdirectory of \texttt{AUTOREGRESSION/}, and \texttt{rsync}s the whole \texttt{AUTOREGRESSION/}
+        directory to the configured hand-off host(s), if that component is in use on this deployment
+        (Section~\ref{sec:deps-install}). If so, the automation run must complete before it can operate
+        correctly for that night.
+\end{enumerate}
+Figure~\ref{fig:runsh} summarizes this sequence.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=0.45cm]
+\node[startstop] (start) {bin/run.sh start};
+\node[process, below=of start] (filedef) {filedef.var\\wait \& retrieve init files};
+\node[process, below=of filedef] (prep) {prep\_list.sh\\generate reference scripts\\(files already present)};
+\node[mesonh, below=of prep] (real) {PREP\_REAL / SPAWNING (Meso-NH)};
+\node[mesonh, below=of real] (exe) {EXE: MESONH (Meso-NH run)};
+\node[process, below=of exe] (postproc) {postproc.sh\\DIAG + FICVAL extraction};
+\node[process, below=of postproc] (plot) {plot\_python.sh\\plots};
+\node[process, below=of plot] (compress) {compress (optional)\\bzip2, parallel};
+\node[process, below=of compress] (stage) {stage outputs\\to PREPARE\_DIR};
+\node[process, below=of stage] (backup) {backup.sh\\upload / local backup};
+\node[startstop, below=of backup] (notify) {notify + hand-off};
+\draw[wkarrow] (start) -- (filedef);
+\draw[wkarrow] (filedef) -- (prep);
+\draw[wkarrow] (prep) -- (real);
+\draw[wkarrow] (real) -- (exe);
+\draw[wkarrow] (exe) -- (postproc);
+\draw[wkarrow] (postproc) -- (plot);
+\draw[wkarrow] (plot) -- (compress);
+\draw[wkarrow] (compress) -- (stage);
+\draw[wkarrow] (stage) -- (backup);
+\draw[wkarrow] (backup) -- (notify);
+\end{tikzpicture}
+\caption{Internal phase sequence of \texttt{bin/run.sh}. Grey boxes are Meso-NH itself; blue boxes are
+automation scripts.}
+\label{fig:runsh}
+\end{figure}
+
+Each of these phases can be individually disabled for debugging via the \texttt{NOPREP}\slash
+\texttt{NORUN}\slash\texttt{NODIAG}\slash\texttt{NOFICVAL}\slash\texttt{NOPLOT} switches in
+\texttt{globals.var}; this is intended for manual troubleshooting only.
+
+\texttt{bin/pgdgen.sh} is a separate, standalone script (not called by \texttt{run.sh}) used to
+(re-)generate the static PGD orography files for a site; it is normally run once, at installation time
+(Section~\ref{sec:deps-install}), and only re-run if the domain geometry or the ground/topography input
+files change.
+
+The scripts \texttt{bin/Run\_lista.sh}, \texttt{bin/crossc2d.py} and \texttt{bin/multi.py} are
+CPU/timing benchmarking helpers used to test the code against a list of past initialization dates; they
+are not part of the nightly operational workflow.
+
+\subsection{Directory layout}
+The automation lives in one top-level working directory (\texttt{WORKDIR} in \texttt{globals.var}):
+\begin{lstlisting}
+bin/            : scripts (see Section 5)
+bin/conf.d/     : configuration files, namelist templates, correction tables, compiled
+                   fortran helpers (see Section 4)
+PGD/            : static orography files, generated once by pgdgen.sh and persistent
+                   across runs
+\end{lstlisting}
+The following sub-directories are created fresh by each run and removed/replaced at the end of it
+(anything left behind after a failed run is there for post-mortem debugging only, and will be deleted
+on the next successful run):
+\begin{lstlisting}
+REAL/     : PREP_REAL binary output and namelists
+RUN/      : Meso-NH (EXE) binary output and namelists
+DIAG/     : DIAG / conv2dia binary output and namelists
+ASCII/    : ASCII output of the postprocessing (DAT, FICVAL, PLOT_DAT, AUTOREGRESSION
+            sub-directories)
+PLOT/     : figures produced by the Python plotting suite
+LOG/      : logs of the current/last run
+\end{lstlisting}
+Outside \texttt{WORKDIR}, in the automation user's home directory, the following are used across runs:
+\begin{lstlisting}
+<init dir>/          : combined (orography + forecast) init files for the current night
+                        (INIDIR)
+<backup init cache>/ : local cache of files retrieved from the backup init server
+                        (BKSERVER_LOCALPATH)
+BACKUP_OUTPUT/        : per-night backup of ASCII/plot outputs (see backup.var)
+BACKUP_FIGURES/        : local mirror of the delivered figures
+<staging dir>/         : staging directory used while moving outputs (PREPARE_DIR)
+AUTOREGRESSION/         : hand-off area shared with the short-timescale component,
+                          if in use on this deployment
+TOPOGRAPHY/             : source topography files used to build the PGD
+<python virtualenv>/   : Python virtualenv used by the automation (Section 3)
+\end{lstlisting}
+The exact names in angle brackets above are whatever \texttt{globals.var} currently sets them to
+(Section~\ref{sec:config}); they are not fixed by the code.
+
+\subsection{Logging and alerting}
+Each phase writes to its own timestamped log file under \texttt{LOGDIR} (main log, error log, and one
+log per Meso-NH executable), configured in \texttt{globals.var}. A cumulative log recording start/end
+time and duration of every phase of every run is appended to the path set by
+\texttt{LOG\_TIME\_CUMULATIVE} in \texttt{globals.var}. Fatal problems abort the script and send an
+alert e-mail (function \texttt{error}); non-fatal issues are logged and mailed without stopping the run
+(function \texttt{error\_soft}).

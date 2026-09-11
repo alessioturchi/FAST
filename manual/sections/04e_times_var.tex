@@ -1,0 +1,70 @@
+\subsection{times.var}
+\texttt{times.var} configures the date being processed, ephemerides-related timing and the plot time
+window. A large part of the file (ephemerides, seasonal plot-limit computation) is scripted and should
+not be edited directly.
+
+\textbf{How the date is actually set.} At the top of the file, \texttt{YEAR}/\texttt{MONTH}/\texttt{DAY}
+default to the system date (\texttt{\$(date +\%Y)} etc.), but the checked-in file immediately overrides
+them with a hand-set date a few lines below (a leftover from the last manual/debug run). \textbf{Because
+this codebase has no external process that refreshes \texttt{times.var} before each run}, whichever of
+the two is active when \texttt{run.sh} sources this file is what gets used:
+\begin{itemize}
+  \item to process ``today'' automatically on every scheduled run, comment out (or remove) the
+        hand-set override so the system-date lines take effect;
+  \item to reprocess a specific past night, or to pin the date for a manual test run, edit the
+        hand-set override directly.
+\end{itemize}
+There is a second file, \texttt{times.var\_sequential}, which is a template of \texttt{times.var} using
+the placeholders \texttt{SET\_THE\_DATE\_YEAR}/\texttt{SET\_THE\_DATE\_MONTH}/\texttt{SET\_THE\_DATE\_DAY}/
+\texttt{SET\_THE\_UPLOADFIGS} in place of literal values. Nothing in this codebase currently reads or
+substitutes into this template -- it is not sourced by \texttt{run.sh}, and no other script in
+\texttt{bin/} references it. It is a leftover from a deployment where an external, per-night wrapper
+script generated \texttt{times.var} from it; on this single-configuration codebase either ignore it, or
+use it as the starting point for your own such wrapper if you want one, substituting the four
+placeholders and copying the result over \texttt{times.var} before invoking \texttt{run.sh}.
+
+\subsubsection{Date and time}
+\begin{lstlisting}
+YEAR=yyyy, MONTH=mm, DAY=dd : date (UT) of the start of the forecast (see above for how
+                     this is actually set).
+FRCSTDATECOMPUTED=hh: UT hour at which the forecast used for initialization was computed.
+                     [current: 12]
+FORWARDFRCSTDATEPLUS=hours: how far in the future, from FRCSTDATECOMPUTED, the first
+                     forecast file is valid for. [current: 12]
+DATEFIGLT=0/1       : if 1, the date used to label figures is the local-time start of the
+                     night; if 0, it is the UT date of the end of the night. [current: 1]
+HOUR_SHIFT_PLOT=hours: shift of the plot time axis with respect to UT midnight, to align
+                     with the simulation start. [current: 0]
+UTOFFSET=hours      : local time offset from UT at the site. [current: -7]
+HOUR_LIST="string"  : space-separated list of forcing hours; matching initialization
+                     files must exist for each. [current: "00 06 12 18"]
+TIMESEND=hh         : UT hour by which the init files are expected to have arrived.
+                     [current: 18]
+TIMELIMIT=seconds   : how long to keep waiting/retrying past TIMESEND before aborting
+                     with an error. [current: 10800]
+EXITSEC=seconds     : interval between Meso-NH output times; must match OUTTIMESTEP in
+                     run.var. [current: 3600]
+\end{lstlisting}
+(\texttt{EXITMIN} is simply \texttt{EXITSEC/60}, computed automatically.)
+
+\subsubsection{Plot parameters}
+\begin{lstlisting}
+PLOTSTARTT/PLOTSTARTEXIT, PLOTFIRSTT/PLOTFIRSTEXIT, PLOTSECONDT/PLOTSECONDEXIT,
+PLOTENDT/PLOTENDEXIT       : default (non-seasonal) plot time window, in minutes from
+                              simulation start and corresponding Meso-NH output index;
+                              overwritten by the seasonal computation below when
+                              SEASONSPLOT=1 (the default).
+FIRSTMONTH=mm, LASTMONTH=mm: calendar months bounding "summer" for the seasonal plot
+                              window. [current: 04, 09]
+EMISPHERE=1/-1              : 1 for the northern hemisphere, -1 for the southern.
+                              [current: 1]
+SEASONSPLOT=0/1             : if 1 (default), the plot time window is computed each
+                              night from sunset/sunrise/dusk/dawn (via the Sunset.py /
+                              Dusk.py / Dawn.py / Sunrise.py helpers) instead of using
+                              the fixed values above. [current: 1]
+UPLOADFIGS=0/1              : tells backup.sh whether to upload all figures (1) or only
+                              the wind-at-ground figures, and only if WINDSPEEDHIGHLIM is
+                              exceeded (0) -- see Section~\ref{sec:usage}. A static
+                              per-deployment setting here (there is no longer anything
+                              that overrides it per run). [current: 1]
+\end{lstlisting}

@@ -1,0 +1,46 @@
+\section{INTRODUCTION}
+
+This manual describes the \textbf{automation module} of \textbf{FAST} (Forecast Automation System for
+Telescopes), the component that runs a single, once-per-night Meso-NH / Astro-Meso-NH atmospheric and
+optical-turbulence forecast for a ground-based telescope site. It automates the full chain: waiting for
+and validating the initialization files, running the mesoscale simulation, post-processing the raw
+model output into astroclimatic parameters, generating diagnostic plots, and delivering the results to
+a remote server.
+
+This document describes the automation \emph{generically}, i.e.\ independently of the specific
+telescope, site or forecasting project it is deployed for. FAST has been deployed, in slightly
+different configurations, for more than one ground-based observatory; this manual covers the common
+core that any such deployment shares, not the site-specific choices (domain geometry, delivered file
+formats, calibration constants) that a given installation layers on top of it via its own
+\texttt{conf.d/*.var} files. Where a parameter table below shows a \texttt{[current: ...]} value, that
+value is simply whatever this particular installation's configuration files currently contain, given as
+a worked example -- not a universal default.
+
+This document covers only the \emph{automation} part of FAST, i.e.\ the component that produces the
+once-per-night Meso-NH forecast. A separate, complementary \emph{short-timescale} component (an
+autoregressive or machine-learning correction of the forecast using real-time telemetry, updated every
+few minutes) may run alongside it on some deployments; it is a distinct program with its own
+configuration and is documented separately. Section~\ref{sec:usage} describes the point at which the
+automation hands data off to it, where applicable.
+
+The user of this manual is assumed to be familiar with the basic operation of Meso-NH, with the Linux
+shell, and with basic bash scripting. A working installation of Meso-NH and of a local OpenMPI build is
+assumed to already be in place; Section~\ref{sec:deps-install} lists the remaining dependencies and the
+steps needed to install and configure the automation code on top of them.
+
+\textbf{Scope of this revision.} This is a \emph{single-configuration} edition of the manual: it
+documents one self-contained instance of the automation (one \texttt{bin/} tree, one set of
+\texttt{conf.d/*.var} files, one nightly \texttt{run.sh}), started directly (by cron or manually) with
+no external orchestration layer coordinating multiple instances or deciding which one's output to keep.
+Deployments that do chain several configurations together (for example, running a second, different-
+resolution configuration after the first, or driving several instances from a shared top-level script)
+require that coordination layer to be documented separately, on top of this manual; nothing here
+describes it.
+
+\textbf{A note on scope.} This manual documents what the automation does and how it is configured; it
+assumes solid Linux system administration and shell-scripting skills, and it is not a substitute for
+them. In an operational deployment, reading the source code directly -- not just this manual -- is
+eventually unavoidable: some situation not covered here will arise, and resolving it will require
+understanding the scripts themselves. No manual can substitute for the operational experience needed to
+run an unattended automated system in production; that experience is built on the job, by encountering
+and working through real problems as they occur.

@@ -1,0 +1,140 @@
+\subsection{globals.var}
+\texttt{globals.var} holds the global configuration: debug switches, the Meso-NH/MPI/Python setup, the
+main working paths, logging and the init/output path tree. It is sourced first by every script.
+
+\subsubsection{Debug switches}
+\begin{lstlisting}
+TESTRUN=0/1        : if 1, do not wait for real init files; use whatever init files are
+                      manually specified/present instead. See section~\ref{sec:filedef} to understand how it works. [current: 0]
+PREPLISTTRUE=0/1   : if 1, run.sh invokes prep_list.sh at the start of the run. [current: 1]
+WAITSURE=0/1       : if 1, wait one extra minute after all init files are detected, to be
+                      extra sure the upload has really finished. [current: 0]
+PARSEBACKUP=0/1    : internal use only, must be left at 0.
+BACKUPLATER=0/1    : if 1, backup.sh is not sourced automatically at the end of run.sh
+                      (it must then be run separately by hand or by an external wrapper
+                      script, which this codebase does not provide). [current: 0]
+NOPREP/NORUN/
+NODIAG/NOFICVAL/
+NOPLOT=0/1         : debug switches to individually skip the PREP_REAL, EXE, DIAG,
+                      FICVAL-extraction or PLOT phase. All [current: 0]; only meant for
+                      manual troubleshooting (see the workflow description above).
+\end{lstlisting}
+
+\subsubsection{Meso-NH / MPI version}
+\begin{lstlisting}
+SHORTVERSION="string"        : short tag for the Meso-NH version, used in log/output file
+                                names. [current: "M521"]
+MNH_BASE_PATH="string"       : root of the Meso-NH installation.
+                                [current: "${HOME}/MNH-V5-2-1_eccodes_2_30_0"]
+MESONH_PERSO_VERSION="string": name of the custom Meso-NH VER_USER build to use. On this
+                                deployment it is computed automatically from the current
+                                month (a "winter" build for Oct-Mar, a "summer" build for
+                                Apr-Sep), each hard-coded as a commented-out fallback just
+                                above the seasonal if/else, so a fixed build can be forced
+                                by uncommenting one and removing the seasonal logic. The
+                                winter/summer split is a seasonal calibration of the
+                                optical-turbulence model built into that version, not a
+                                change of advection scheme -- see Section 3.1.
+MPI_VERSION="string"         : root of the local OpenMPI installation.
+                                [current: "${HOME}/OPEN-MPI-4-1-1"]
+\end{lstlisting}
+\texttt{MNH\_MAIN\_PATH}, \texttt{MNH\_GRIBAPI\_PATH}, \texttt{MNH\_TOOL\_PATH}, \texttt{MNH\_PROFILE}
+and the \texttt{LD\_LIBRARY\_PATH}\slash\texttt{PATH} exports below them are derived automatically from
+the three variables above and from Meso-NH's own \texttt{profile\_mesonh}; they should only need to
+change together with a Meso-NH/eccodes version upgrade.
+
+\subsubsection{Base configuration and main paths}
+\begin{lstlisting}
+SITE_NAME="string"  : max 3 characters, identifies the site. [current: 3-letter site tag]
+NESTING=integer     : number of nested domains (outer=1). [current: 3]
+WORKDIR="string"    : absolute path of the automation's working directory. Must be
+                      edited at install time (see the Installation steps above).
+LOCPYTHONDIR="string": bin/ directory of the Python virtualenv activated by run.sh.
+PYTHONEXE="string"  : Python interpreter name. [current: "python3"]
+\end{lstlisting}
+\texttt{CONFDIR}, \texttt{EXEDIR}, \texttt{UTILDIR}, \texttt{PYTHONPLOT}, \texttt{FUNCFILE} and the
+\texttt{*\_VAR} variables pointing at the other configuration files (\texttt{FILEDEF\_VAR},
+\texttt{TIME\_VAR}, \texttt{TIME\_VAR\_SEQ}, \texttt{RUN\_VAR}, \texttt{PGD\_VAR},
+\texttt{BACKUP\_VAR}, \texttt{CORRECTION\_DIR}) are all derived from \texttt{WORKDIR} and should not
+normally be edited.
+
+\subsubsection{Logging}
+\begin{lstlisting}
+LOGEXE=0/1/2      : 0 prints MESONH output to the console; 1 sends it to separate log
+                    files; 2 appends it to the main log file. [current: 1]
+MAIL_ADDRESS="string": destination address(es) for alert/completion mail.
+FROM_ADDRESS="string": sender address used by the Gmail-API mail scripts.
+MAIL_PREFIX="string" : subject-line prefix for all mail from this deployment. Built as
+                    "<project tag> - ${NESTING}DOM"; the checked-in value still carries a
+                    project tag inherited from the codebase this automation was derived
+                    from -- edit it to identify your own deployment.
+\end{lstlisting}
+\texttt{LOGDIR} and every \texttt{LOG*FILE} variable are timestamped paths derived from
+\texttt{WORKDIR}/\texttt{DATESTART}; \texttt{LOG\_TIME\_CUMULATIVE} and \texttt{ERROR\_OUTPUT\_FILE}
+live outside \texttt{WORKDIR}, directly under \texttt{\$HOME}, so that they survive across runs (the
+cumulative timing log and the hard-error marker file, respectively). \textbf{Note:} the comment
+immediately above \texttt{ERROR\_OUTPUT\_FILE} in the checked-in file still warns to also update an
+external orchestration script if this variable is renamed; that script is not part of this codebase (see
+the note on scope in Section~\ref{sec:usage}) and the comment is stale -- safe to ignore, or to remove,
+on this single-configuration deployment.
+
+\subsubsection{Init paths}
+\begin{lstlisting}
+INIRAWDIR="string"       : directory where raw initialization files are uploaded by the
+                           forecast-model data provider.
+INIDIR="string"          : directory where the merged (orography+forecast) files are
+                           placed, by the retrieval logic in filedef.var.
+BKSERVER_USER="string"   : SSH username on the backup init server. Requires
+                           passwordless key-based login (see the Installation steps).
+BKSERVER_IP="string"     : IP of the backup init server.
+BKSERVER_INIPATH="string": remote path (relative) of the init files on that server.
+BKSERVER_LOCALPATH="string": local cache directory for files retrieved from it.
+\end{lstlisting}
+
+\subsubsection{Output paths}
+The remaining paths in this block are almost all mechanically derived from \texttt{WORKDIR} or
+\texttt{\$HOME} and are not normally edited by hand; they are listed here for completeness since they
+determine where each phase's output can be found (Section~\ref{sec:usage}, ``Directory layout''):
+\begin{table}[H]
+\centering
+\begin{tabular}{|p{4.8cm}|p{10cm}|}
+\hline
+\textbf{Variable} & \textbf{Purpose} \\ \hline
+OUTDIR\_REAL / OUTDIR\_PREP & PREP\_REAL binary output and namelists (\texttt{WORKDIR/REAL}) \\ \hline
+OUTPUT\_MNH / PREP\_MNH & EXE (Meso-NH run) binary output and namelists (\texttt{WORKDIR/RUN}) \\ \hline
+DIAG\_MNH / PREP\_DIAG & DIAG/conv2dia binary output and namelists (\texttt{WORKDIR/DIAG}) \\ \hline
+ASCII\_DIR, DAT\_DIR, PLOTDAT\_DIR, FICVAL\_DIR & ASCII postprocessing output (\texttt{WORKDIR/ASCII/...}) \\ \hline
+AUTOREGRESSION\_DIR & per-run ASCII staged for the short-timescale hand-off (\texttt{ASCII\_DIR/AUTOREGRESSION}) \\ \hline
+PLOT\_DIR & figures produced by the plotting phase (\texttt{WORKDIR/PLOT}) \\ \hline
+AUTOREGRESSION\_-\newline STORE\_DIR & final hand-off data store, a site-named
+ subdirectory under \texttt{\$HOME/AUTOREGRESSION} \\ \hline
+AUTOREGRESSION\_-\newline BASE\_DIR & hand-off root, rsynced to the short-timescale host(s) (\texttt{\$HOME/AUTOREGRESSION}) \\ \hline
+TRENDSDIR & trend files (\texttt{\$HOME/TRENDS}) \\ \hline
+FINALOUTDIR & final ground-parameter output file, delivered to the telescope infrastructure;
+ path under \texttt{\$HOME} is deployment-specific \\ \hline
+PREPARE\_DIR & per-run staging directory before backup/upload; path under \texttt{\$HOME}
+ is deployment-specific \\ \hline
+PGDDIR / PREP\_PGDDIR & PGD files (\texttt{WORKDIR/PGD}) \\ \hline
+TOPODIR & source topography files (\texttt{\$HOME/TOPOGRAPHY}) \\ \hline
+FILTERDIR & short-timescale-component working files (\texttt{\$HOME/FILTER}) \\ \hline
+\end{tabular}
+\end{table}
+As with \texttt{MAIL\_PREFIX} above, several of these paths still carry, in the checked-in file, naming
+inherited from the codebase's origin -- among them \texttt{INIDIR}, \texttt{LOCPYTHONDIR}, the
+autoregression store path, \texttt{FINALOUTDIR}, \texttt{PREPARE\_DIR}, and the backup-server and
+raw-init-directory variables above. Rename them freely to fit your own deployment; nothing else depends
+on the literal strings, only on the variables pointing at consistent, existing directories.
+
+\subsubsection{Namelist templates and executables}
+\texttt{NLDIR} and the \texttt{NL*} variables point at the namelist template files under
+\texttt{bin/conf.d/namelist/} (Section~4.1); on this deployment \texttt{NLDIR} points at the
+\texttt{cen4th} set. The \texttt{EXE\_*}/\texttt{GRIBCOPY} variables are the paths to the Meso-NH
+executables and to \texttt{grib\_copy}, derived from the Meso-NH paths above; they should not need
+manual editing on a standard installation.
+
+\subsubsection{File compression and backup}
+\begin{lstlisting}
+DOZIPREAL=0/1  : bzip2-compress the PREP_REAL .lfi output. [current: 0]
+DOZIPOUT=0/1   : bzip2-compress the EXE (Meso-NH run) .lfi output. [current: 0]
+DOZIPDIAG=0/1  : bzip2-compress the DIAG .lfi output. [current: 0]
+\end{lstlisting}

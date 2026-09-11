@@ -1,0 +1,71 @@
+#!/bin/bash
+#Variable to control if to perform latitude, longitude and altitude extraction from pgd files
+#Actually it is useful only if $NESTING>1
+PGDEXTRACTPT=1
+
+#Three characters variable to identify the site where we are working
+PGD_PREFIX="${SITE_NAME}"
+
+#Projection type. 0 is mercator, 1 is north pole, -1 is south pole. As a precaution, write it down as a real number (like 1. instead of 1)
+XRPK_VALUE="1."
+
+#YCOVER, YSAND and YCLAY files updated on 15/06/2016
+#cover file, without extension ({dir,hdr})
+YCOVER_FILE="ECOCLIMAP_II_EUROP_V2.3"
+#clay file, without extension ({dir,hdr})
+YCLAY_FILE="CLAY_HWSD_MOY"
+#sand file, without extension ({dir,hdr})
+YSAND_FILE="SAND_HWSD_MOY"
+#Topography files used in the various nesting levels, organized as an array. Fist level is 0, then counting upward.
+YZS_FILE[0]="gtopo30"
+YZS_FILE[1]="gtopo30"
+YZS_FILE[2]="patch_geo.final"
+#YZS_FILE[2]="site_ord4"
+#YZS_FILE[2]="srtm90_site"
+YZS_FILE[3]="patch_geo.final"
+#YZS_FILE[3]="site_ord4"
+#YZS_FILE[3]="srtm90_site"
+#Kinds of topography files as recognized by meso-nh, array matching the previous one
+YFILETYPE_VALUE[0]="DIRECT"
+YFILETYPE_VALUE[1]="DIRECT"
+YFILETYPE_VALUE[2]="LATLON"
+#YFILETYPE_VALUE[2]="DIRECT"
+YFILETYPE_VALUE[3]="LATLON"
+#YFILETYPE_VALUE[3]="DIRECT"
+
+#Coordinates centered on the interesting site, XLON0 an XLAT0 use the same value in the template
+#Paranal
+XLATCEN_VALUE="-24.625278"
+XLONCEN_VALUE="-70.402222"
+#Armazones
+#XLATCEN_VALUE="-24.589167"
+#XLONCEN_VALUE="-70.191667"
+#Grid points for external level
+NIMAX_VALUE="80"
+NJMAX_VALUE="${NIMAX_VALUE}"
+#Size in meters of grid squares for external level
+XDX_VALUE="10000"
+XDY_VALUE="${XDX_VALUE}"
+
+#Starting grid point for the nesting level calculated on the preceding layer
+#The array is scaled from before, so that 0 is the first nested level (secon level), 1 is t$
+IXOR_PREC[0]="33"
+IYOR_PREC[0]="33"
+IXOR_PREC[1]="21"
+IYOR_PREC[1]="23"
+IXOR_PREC[2]="52"
+IYOR_PREC[2]="42"
+#Number of grid points on the nested level
+IXSIZE_VALUE[0]="16"
+IYSIZE_VALUE[0]="16"
+IXSIZE_VALUE[1]="30"
+IYSIZE_VALUE[1]="20"
+IXSIZE_VALUE[2]="20"
+IYSIZE_VALUE[2]="20"
+#Scaling ration for the grid size with respect to the preceding level
+IDXRATIO_VALUE[0]="4"
+IDYRATIO_VALUE[0]="4"
+IDXRATIO_VALUE[1]="5"
+IDYRATIO_VALUE[1]="5"
+IDXRATIO_VALUE[2]="5"
+IDYRATIO_VALUE[2]="5"

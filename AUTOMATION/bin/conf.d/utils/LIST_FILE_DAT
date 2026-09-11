@@ -1,0 +1,36 @@
+cht_pn.dat: tempo di coerenza del front d'onda Tau0 (in s) al punto n. 1 valore ad ogni TimeStep.
+
+cn2_pn.dat: profilo verticale del Cn2, 1 profilo ogni 2 minuti:
+PROC / Cn2 (m-2/3) / ALTEZZA (m)
+
+iso_pn.dat: angolo isoplanatico (in arcsec). 1 valore ad ogni TimeStep.
+
+lm_pn.dat: profilo verticale della mixing lenght, 1 profilo ogni 2 minuti:
+PROC / LM (m) / ALTEZZA (m)
+
+rh_pn_km.dat: umidità relativa al livello k=m (in %) al punto n. 1 valore ad ogni TimeStep.
+
+rh_prof_pn.dat: profilo verticale dell'umidità relativa (in %). 1 profilo ogni 2 minuti.
+PROC / RH (%) / ALTEZZA (m)
+
+see_pn.dat: total seeing (in arcsec). 1 valore ad ogni TimeStep.
+
+see_pn_v.dat: seeing from a given level (specified in EXSEG). 1 valore ad ogni TimeStep.
+
+temp_pres_pn.dat: profilo verticale della temperatura assoluta, e della pressione. Un profilo ogni 2 minuto 
+PROC / TEMP (K) / P (Pa) /
+ALTEZZZ (m)
+
+theta_pn.dat: profilo verticale della temperatura potenziale. Un profilo ogni 2 minuto
+PROC / TEMP POT (K) /ALTEZZA (m)
+
+tke_pn.dat: profilo verticale della Turbulent Kinetic Energy. Un profilo ogni 2 minuto
+PROC / TKE (m2/s2) /ALTEZZA (m)
+
+vx_vy_pn.dat: profilo verticale del vento (le 2 componenti). Un profilo ogni 2 minuto
+PROC / Vx (m/s) / Vy (m/s) /
+ALTEZZZ (m)
+
+wind_and_temp_pres_vx_vy_pn_km.dat: modulo del vento, temperatura assoluta, pressione, al livell k=m. 1 valore ad ogni TimeStep.
+Wind (m/s) / T (K) / P (Pa) / Vx (m/s) / Vy (m/s)
+

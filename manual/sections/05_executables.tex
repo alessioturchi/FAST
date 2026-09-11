@@ -1,0 +1,108 @@
+\section{EXECUTABLES REFERENCE}
+\label{sec:executables}
+This section describes each script individually. Section~\ref{sec:usage} already covers how they fit
+together into the nightly workflow; here the focus is on each script's own inputs, outputs and notable
+behaviour.
+
+\subsection{bin/run.sh -- main nightly executable}
+Entry point of a single night's simulation; invoked with no arguments, either by cron or manually
+(Section~\ref{sec:usage}). It locates its own configuration via \texttt{conf.d/globals.var}, relative to
+its own path, so it must be run from within \texttt{bin/}. On start it kills any leftover Meso-NH-related
+processes from a previous, possibly stuck run (\texttt{pkill} on the executable names from
+\texttt{globals.var}), rotates the log directory, then runs the full phase sequence described in
+Section~\ref{sec:usage} (\texttt{prep\_list.sh}, \texttt{filedef.var}, PREP\_REAL, EXE,
+\texttt{postproc.sh}, \texttt{plot\_python.sh}, compression, staging, \texttt{backup.sh}, notification,
+hand-off). Exit status is 0 on success; any hard failure calls the \texttt{error} function (log + alert
+mail + \texttt{exit 1}). Individual phases can be disabled with the \texttt{NOPREP}\slash\texttt{NORUN}\slash
+\texttt{NODIAG}\slash\texttt{NOFICVAL}\slash\texttt{NOPLOT} debug switches in \texttt{globals.var}
+(Section~\ref{sec:config}).
+
+\subsection{bin/prep\_list.sh -- generate reference legacy-style scripts}
+Invoked by \texttt{run.sh} as a separate sub-process (\texttt{env bash -c}) before the PREP\_REAL phase,
+unless \texttt{PREPLISTTRUE=0}. Its header comment (``script used to generate runscripts with all the
+namelists inside, Lascaux\&Masciadri style'') is accurate and matches what most of the script actually
+does: it generates \textbf{two self-contained, standalone bash scripts}, written into \texttt{WORKDIR}:
+\begin{lstlisting}
+1.PREP_EXP_REAL_<version>_<site>_<N>MOD_<date>_<levels>lev_<tail>  : reproduces the
+                                                    PREP_REAL/SPAWNING step
+2.PREP_EXP_RUN_<version>_<site>_<N>MOD_<date>_<levels>lev_<tail>   : reproduces the
+                                                    EXE (Meso-NH run) step
+\end{lstlisting}
+Each is fully self-contained -- exported shell variables, the relevant namelists embedded via heredocs,
+the exact \texttt{mpirun} invocation -- written in the style of the pre-FAST Lascaux \& Masciadri
+Meso-NH workflow scripts. They are meant as \textbf{reference material for a user unfamiliar with FAST}
+who wants to see, or manually reproduce, what happens at the plain Meso-NH level; \texttt{run.sh}'s own
+PREP\_REAL/EXE phases are separate, inline implementations and do \textbf{not} use these generated
+scripts at all.
+
+Generating them requires knowing which init files are available, so \texttt{prep\_list.sh} does source
+\texttt{globals.var}, \texttt{times.var}, \texttt{run.var}, \texttt{filedef.var} and \texttt{backup.var}
+(with \texttt{GENERATELIST=1}, which suppresses the verbose logging those files would otherwise
+produce). Because it runs in a separate shell, none of the variables it resolves survive back into \texttt{run.sh}. At the end, \texttt{prep\_list.sh} deletes the REAL/RUN staging directories it used while generating the scripts (\texttt{rm -rf}); only the two generated scripts are left behind in \texttt{WORKDIR}.
+
+If invoked interactively (with any command-line argument) it will instead prompt for\\
+\texttt{YEAR}/\texttt{MONTH}/\texttt{DAY}/\texttt{DAYB} rather than reading them from \texttt{times.var}.
+
+\subsection{bin/postproc.sh -- DIAG/FICVAL extraction}
+Sourced (not executed as a sub-process) by \texttt{run.sh} right after the EXE phase, so it shares
+\texttt{run.sh}'s environment. Unless \texttt{NODIAG=1}, it loops over every Meso-NH output
+(\texttt{.lfi}) file, and for each nesting level listed in \texttt{DIAGLEVELARRAY} runs the \texttt{DIAG}
+executable and \texttt{conv2dia}/\texttt{diaprog} for every combination of heights in
+\texttt{DIAGINFHEIGHTS}/\texttt{DIAGSUPHEIGHTS} (\texttt{run.var}, Section~\ref{sec:config}), producing
+the derived astroclimatic parameters. Unless \texttt{NOFICVAL=1}, it also runs the FICVAL extraction
+(vertical profiles/cuts and 2D ground maps) for the keywords configured in
+\texttt{EXTRACTLIST\_DOM\_FIRST}/\texttt{EXTRACTLIST\_DOM\_SECOND}/\texttt{PVLIST\_*}/\texttt{CVLIST\_*}.\\
+Output goes to \texttt{DIAG\_MNH}/\texttt{ASCII\_DIR} (Section~\ref{sec:usage}).
+
+\subsection{bin/plot\_python.sh -- plotting}
+Sourced by \texttt{run.sh} after \texttt{postproc.sh}, unless \texttt{NOPLOT=1}. Drives the Python
+scripts under \texttt{bin/conf.d/utils/Plot\_python/} (Section~\ref{sec:config}) to turn the ASCII
+output of \texttt{postproc.sh} into the delivered figures under \texttt{PLOT\_DIR}, and computes
+\texttt{WINDAVG} (the K=4 average wind speed) and the derived \texttt{WINDAVGHIGH} flag against
+\texttt{WINDSPEEDHIGHLIM} (\texttt{run.var}), used by \texttt{backup.sh} as described in
+Section~\ref{sec:usage}. Uses ImageMagick's \texttt{convert} for at least one figure format conversion
+step.
+
+It computes the full parameter suite on \texttt{DOM\_FIRST}: CN2 (both a ``new-algorithm''
+wind-gradient-corrected product and, in parallel, the \texttt{\_OS18} alternative product, Section~
+\ref{sec:config}), seeing, isoplanatic angle and coherence time, potential and absolute temperature,
+relative humidity, precipitable water vapour, plus wind at several fixed levels and vertical profiles,
+and 2D ground maps for most of the above. Among the wind products, it also computes statistics over
+three fixed height windows tied to specific instrument requirements at the deployment site
+(script-internal suffixes \texttt{\_linc\_low}\slash\texttt{\_linc\_high}, \texttt{\_flao},
+\texttt{\_argos} -- currently 30--415\,m, 5072--9127\,m, 30--20000\,m and 30--560\,m respectively); edit
+the ranges and labels directly in the script if a different deployment's instruments need different
+windows. It unconditionally copies its ground-parameter results (seeing/wind/temperature/RH/PWV) into
+\texttt{AUTOREGRESSION\_DIR} and \texttt{AUTOREGRESSION\_STORE\_DIR}, ready for the short-timescale
+hand-off described in Section~\ref{sec:usage}, if that component is deployed.
+
+\subsection{bin/backup.sh -- upload and local backup}
+Sourced by \texttt{run.sh} at the very end of a successful run, unless \texttt{BACKUPLATER=1} (in which
+case it must be invoked separately). Reads \texttt{backup.var} (Section~\ref{sec:config}) to decide, per
+output category, whether to rsync it to the primary and backup remote servers
+(\texttt{REMOTE\_HOST}\slash\texttt{REMOTE\_HOST\_BK}), and/or keep a local copy under
+\texttt{BACKUP\_DIR} (or, for figures, \texttt{BACKUP\_FIGURES\_DIR}). When \texttt{UPLOADFIGS=0}
+(\texttt{times.var})
+it normally skips the figure upload entirely, \emph{except} that it still uploads the near-ground wind
+figures/ASCII if \texttt{WINDAVGHIGH=1} (set by \texttt{plot\_python.sh}) -- the self-contained
+high-wind exception described in Section~\ref{sec:usage}. Can also be run stand-alone
+(\texttt{./backup.sh}) for a previously-staged run, in which case it detects it is not being sourced
+from \texttt{run.sh} and sources \texttt{globals.var}, \texttt{times.var}, \texttt{run.var} and
+\texttt{backup.var} itself first.
+
+\subsection{bin/pgdgen.sh -- PGD (orography) generation}
+Stand-alone script, not called by \texttt{run.sh}; run manually at installation time and again only if
+the domain geometry or topography source files change (Section~\ref{sec:deps-install}). Sources
+\texttt{globals.var} and \texttt{pgd.var}, checks/creates the working directories, then generates the
+PGD files for every nesting level (outer domain plus each nested level, per \texttt{NESTING}) via the
+internal \texttt{prep\_list\_pgd} function (which in turn drives Meso-NH's \texttt{PREP\_PGD}/
+\texttt{PREP\_NEST\_PGD} executables using the \texttt{NLPGDFIRST}/\texttt{NLPGDNEST}/
+\texttt{NLPGDPREPNEST} namelist templates). On completion it moves its own log files into
+\texttt{PGDDIR}. Takes no arguments; progress and errors go to \texttt{LOGPGDFILE}.
+
+\subsection{Benchmarking helpers (not part of nightly operation)}
+\texttt{bin/Run\_lista.sh}, \texttt{bin/crossc2d.py} and \texttt{bin/multi.py} are used together to
+replay a list of past initialization dates (read from a file named \texttt{LISTAgrib}) purely to measure
+CPU/timing performance. \texttt{Run\_lista.sh} builds a \texttt{RUN\_ALL.sh} launcher from that list and
+copies the two Python helpers into a scratch \texttt{CPUTEST/} directory. None of the three are invoked
+anywhere in the operational workflow (cron or otherwise) and can be ignored for normal use.

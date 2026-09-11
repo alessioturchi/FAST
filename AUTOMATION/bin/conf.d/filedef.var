@@ -1,0 +1,281 @@
+#!/bin/bash
+# This file contains variables related to file names, that should be changed less frequently.
+# Many filenames are automatically generated on the basis of the system date
+
+# Below parameters should be self-eplanatory, however we should be aware that
+# launching the simulation on the wrong date may miss some file... I guess this
+# isn't even a remote possibility, but you are warned. Check your cron files!
+# WARNING!! THIS FILE SHOULD BE SOURCED AFTER run.var and times.var
+
+####################################################################################
+# FROM HERE ONWARD YOU SHOULDN'T MODIFY ANYTHING. IF YOU DO, PLEASE BE CAREFUL
+# EVERYTHING IS SCRIPTED, SO IT SHOULD WORK AUTOMAGICALLY
+####################################################################################
+####################################################################################
+# PGD FILES SELECTION
+####################################################################################
+
+# PGD nested files (without extension)
+# PGD FILES must be named with the following convention:
+# FIRST LAYER: 1.PAR_etc...
+# SECON LAYER: 2.PAR_etc...
+# etc...
+# PGD files must be placed in $PGDDIR before execution of the script
+if [ $NESTING -gt 1 ]; then
+  PGD_LIST=$(find "$PGDDIR" -name "[[:digit:]].*.lfi" |grep "nestXX" | sed 's/\(.*\)\..*/\1/' | sort)
+else
+  PGD_LIST=$(find "$PGDDIR" -name "[[:digit:]].*.lfi" |grep -v "nestXX" | sed 's/\(.*\)\..*/\1/' | sort)
+fi
+PGD_ARRAY=($PGD_LIST)
+PGD_LIST="${PGD_ARRAY[@]}"
+NUMPGD=${#PGD_ARRAY[@]}
+#Generate basename array
+TMP=0
+while [ $TMP -lt $NUMPGD ]; do
+  PGD_ARRAY_BASE[$TMP]=$(basename "${PGD_ARRAY[$TMP]}")
+  TMP=$((TMP+1))
+done
+## List of all PGD files
+[ $GENERATELIST -eq 0 ] && log "PGD_LIST=$PGD_LIST"
+if [ $NUMPGD -ne $NESTING ]; then
+  error "!!! In filedef.var: The number of PGD files is different from NESTING level - ABORTING"
+fi
+
+####################################################################################
+# INITIAL ECWMF FILES SEARCH
+####################################################################################
+#Base name for raw files of the day
+BASEINITNAME="D2D${MONTH}${DAY}${FRCSTDATECOMPUTED}00"
+#Name of the initial analysis file with orography (for grib_copy)
+BASEANAFILE="D2D${MONTH}${DAY}${FRCSTDATECOMPUTED}00${MONTH}${DAY}${FRCSTDATECOMPUTED}001"
+#there are 2 files for each forecast
+MAXNUM=$((NUMHOURS*2))
+#there is also the analysis with orography inside
+MAXNUM=$((MAXNUM+2))
+#Search for files or sleep if still they didn't all arrive
+IDXANA=0
+DATERETRIEVAL=0
+IDXBKANA=0
+DATELASTERRORRETRIEVAL=0
+if [ $TESTRUN -ne 0 ]; then
+  IDXANA=$(($MAXNUM - 1))
+else
+  check_directory "${BKSERVER_LOCALPATH}"
+  while [ $IDXANA -lt $MAXNUM ]; do
+    IDXANA=0
+    for i in $(find "${INIRAWDIR}/" -name "${BASEINITNAME}*"|sort ); do
+      IDXANA=$(($IDXANA+1))
+#Suppose we have more hours than needed, stop searching (this isn't an error)
+#      if [ $IDXANA -ge $MAXNUM ]; then
+#        break
+#      fi
+    done
+    for i in $(find "${BKSERVER_LOCALPATH}/" -name "${BASEINITNAME}*"|sort ); do
+      IDXANA=$(($IDXANA+1))
+      IDXBKANA=$(($IDXBKANA+1))
+      DATERETRIEVAL=$(date -u +%s)
+#Suppose we have more hours than needed, stop searching (this isn't an error)
+#      if [ $IDXANA -ge $MAXNUM ]; then
+#        break
+#      fi
+    done
+    if [ $IDXANA -gt $MAXNUM ]; then
+       error_soft "!!! WARNING: We got more init file than expected: $IDXANA > $MAXNUM. Continuing with simulation but plese check this."
+    fi
+####################
+#REMOTE RETRIEVAL
+    if [ $IDXANA -lt $MAXNUM ]; then
+      log "******************************"
+      DATERETRIEVAL=$(date -u +%s)
+      log " - REMOTE RETRIEVAL: connecting to remote server ${BKSERVER_USER}@${BKSERVER_IP}"
+      check_directory "${BKSERVER_LOCALPATH}"
+      echo scp ${BKSERVER_USER}@${BKSERVER_IP}:${BKSERVER_INIPATH}/${BASEINITNAME}* ${BKSERVER_LOCALPATH}/
+      scp ${BKSERVER_USER}@${BKSERVER_IP}:${BKSERVER_INIPATH}/${BASEINITNAME}* ${BKSERVER_LOCALPATH}/
+#      EXIT=$?
+#      if [ $EXIT -eq 0 ]; then
+#        #TRY NOT TO SEND AN EMAIL MORE THAN ONCE EVERY 30 MINUTES.
+#        if [ $(($DATERETRIEVAL - $DATELASTERRORRETRIEVAL)) -ge 1800 ];then
+#          DATELASTERRORRETRIEVAL=$(date -u +%s)
+#          error_soft "!!! WARNING: REMOTE RETRIEVAL FAILED: $(cat ${ERRFILE})"
+#        fi
+#      fi
+      for inik in $(find ${BKSERVER_LOCALPATH}/ -name "${BASEINITNAME}*"|grep -v md5); do
+         if [ -e ${inik}.md5 ]; then
+           log " - REMOTE RETRIEVAL: md5 hash for ${inik} correcty dowloaded"
+         else
+           error_soft "!!! WARNING: Init file ${inik} was downloaded from backup server without an md5 hash. Computing md5 hash and continuing, however please check this."
+           md5sum "${inik}"|cut -d" " -f1 >> "${inik}.md5"
+         fi
+      done
+      log "******************************"
+    fi
+####################
+    TIMENOW=$(date +%s)
+#    TIMENOW=$((TIMENOW-TIMESENDUTC))
+    TIMENOW=$((TIMENOW-DATE_FIRST_UNIX))
+    if [ $IDXANA -lt $MAXNUM ]; then
+      if [ $TIMENOW -ge $TIMELIMIT ]; then
+        error "!!! ERROR: INIT FILES ${BASEINITNAME} DID NOT ARRIVE AFTER $TIMELIMIT SECONDS - ABORTING ($IDXANA -lt $MAXNUM)"
+      else
+        if [ $IDXANA -lt $MAXNUM ]; then
+          TIMENOW=$(date -u +%F/%T)
+          [ $GENERATELIST -eq 0 ] && log " -- INIT FILES ${BASEINITNAME} DID NOT ARRIVE AT $TIMENOW UTC - SLEEPING 300 SECONDS ($IDXANA -lt $MAXNUM)"
+          sleep 5m
+        fi
+      fi
+    fi
+  done
+  #The following is just to be extra sure that everything is arrived
+  if [ $WAITSURE -eq 1 ]; then
+    sleep 1m
+  fi
+#Search for analysis file
+  ANAFOUND=0
+#The default policy is that if data were retrieved from the backup server, prefer those files over the one thay may (or may not) be present on the local disk
+  if [ $IDXBKANA -eq 0 ]; then
+    FILESEARCHPATH[0]="${INIRAWDIR}/${BASEANAFILE}"
+    NUMTOSEARCH=1
+  else
+    FILESEARCHPATH[0]="${BKSERVER_LOCALPATH}/${BASEANAFILE}"
+    FILESEARCHPATH[1]="${INIRAWDIR}/${BASEANAFILE}"
+    NUMTOSEARCH=2
+    error_soft "!!! WARNING: grib files retrieved from backup server"
+  fi
+  TMP=0
+  while [ $TMP -lt $NUMTOSEARCH ]; do
+    if [ -f "${FILESEARCHPATH[$TMP]}" ]; then
+      [ $GENERATELIST -eq 0 ] && echo " -- Orography file found"
+      if [ -f "${FILESEARCHPATH[$TMP]}.md5" ]; then
+        MD5A=$(cat "${FILESEARCHPATH[$TMP]}.md5")
+        MD5B=$(md5sum "${FILESEARCHPATH[$TMP]}"|cut -d" " -f1)
+        if [ "${MD5A}" != "${MD5B}" ]; then
+          if [ $TMP -eq $(($NUMTOSEARCH - 1)) ];then
+            #On the last file I must give an error
+            error "!!! ERROR: checksum for analysis file ${FILESEARCHPATH[$TMP]} invalid - ABORTING"
+          fi
+        else
+          ANAFOUND=1
+          ANAFILESELECTED="${FILESEARCHPATH[$TMP]}"
+          TMP=$NUMTOSEARCH
+        fi
+      else
+        if [ $TMP -eq $(($NUMTOSEARCH - 1)) ];then
+          #On the last file I must give an error
+          error "!!! ERROR: checksum for analysis file ${FILESEARCHPATH[$TMP]} not present - ABORTING"
+        fi
+      fi
+    else
+      if [ $TMP -eq $(($NUMTOSEARCH - 1)) ];then
+        #On the last file I must give an error
+        error "!!! ERROR: analysis file ${FILESEARCHPATH[$TMP]} not present - ABORTING"
+      fi
+    fi
+    TMP=$((TMP+1))
+  done
+fi
+#Search for forecast data files
+IDXANA=0
+if [ $TESTRUN -ne 0 ]; then
+  INIRAWDIR="${INIDIR}"
+fi
+if [ $DATERETRIEVAL -eq 0 ]; then
+  FILESEARCHPATH[0]="${INIRAWDIR}"
+  NUMTOSEARCH=1
+else
+  FILESEARCHPATH[0]="${BKSERVER_LOCALPATH}"
+  FILESEARCHPATH[1]="${INIRAWDIR}"
+  NUMTOSEARCH=2
+fi
+if [ $TESTRUN -eq 0 ]; then
+  TMP=0
+  while [ $TMP -lt $NUMTOSEARCH ]; do
+    for i in $(find "${FILESEARCHPATH[$TMP]}/" -name "${BASEINITNAME}*"|grep -v "${BASEANAFILE}"|grep ".md5"|sort ); do
+#Suppose we have more hours than needed, stop searching (this isn't an error)
+      if [ $IDXANA -eq $NUMHOURS ]; then
+        break
+      fi
+#Check md5sum
+      FULLINITNAME=$(basename ${i%.*})
+      MD5A=$(cat "$i")
+      MD5B=$(md5sum "${FILESEARCHPATH[$TMP]}/${FULLINITNAME}"|cut -d" " -f1)
+      if [ "${MD5A}" != "${MD5B}" ]; then
+        if [ $TMP -eq $(($NUMTOSEARCH - 1)) ];then
+          #On the last file I must give an error
+          error "!!! ERROR: checksum for raw file ${FILESEARCHPATH[$TMP]}/${FULLINITNAME} invalid - ABORTING"
+	fi
+      fi
+#Check that files are the expected ones
+      IDXANA2=0
+      while [ $IDXANA2 -lt $NUMHOURS ]; do
+        if [ "$(echo "$FULLINITNAME"|cut -c 16-17)" == ${HOUR_ARRAY[$IDXANA2]} ]; then
+	  INIFILESELECTED[$IDXANA2]="${FILESEARCHPATH[$TMP]}/${FULLINITNAME}"
+          #Perform grib_copy to generate combined files	  
+          test -e ${WORKDIR}/TMP_INIT && rm ${WORKDIR}/TMP_INIT -rf
+          mkdir ${WORKDIR}/TMP_INIT
+          [ -f ${ANAFILESELECTED} ] || error "!!! ERROR: analysis file disappeared along the way? Something weird is happening... - ABORTING"
+          cp "${ANAFILESELECTED}" ${WORKDIR}/TMP_INIT/
+          cp "${INIFILESELECTED[$IDXANA2]}" ${WORKDIR}/TMP_INIT/
+          test -e "${INIDIR}/${FULLINITNAME}" && rm "${INIDIR}/${FULLINITNAME}" -f
+          "${GRIBCOPY}" "${WORKDIR}/TMP_INIT/$(basename ${ANAFILESELECTED})" "${WORKDIR}/TMP_INIT/${FULLINITNAME}" "${INIDIR}/${FULLINITNAME}"
+	  EXIT=$?
+	  if [ $TMP -eq $(($NUMTOSEARCH - 1)) ]; then
+            #On the last file I must give an error
+            [ $EXIT -eq 0 ] || error "!!! ERROR: grib_copy failed on ${WORKDIR}/TMP_INIT/${FULLINITNAME}"
+	  fi
+          rm ${WORKDIR}/TMP_INIT/ -rf
+          #Generate bash array
+          FILE_ANA_ARRAY[$IDXANA2]="${INIDIR}/${FULLINITNAME}"
+          IDXANA=$(($IDXANA+1))
+          break 
+        else
+          if [ $TMP -eq $(($NUMTOSEARCH - 1)) ] && [ $IDXANA2 -eq $(($NUMHOURS -1)) ]; then
+            #On the last file I must give an error
+            error "!!! ERROR: file ${FILESEARCHPATH[$TMP]}/$FULLINITNAME does not correspond to a valid hour"
+          fi
+        fi
+        IDXANA2=$(($IDXANA2+1))
+      done
+    done
+    TMP=$((TMP+1))    
+  done
+else
+#Generate bash array
+  while [ $IDXANA -lt $NUMHOURS ]; do
+    FILE_ANA_ARRAY[$IDXANA]="${INIDIR}/foo"
+    IDXANA=$(($IDXANA+1))
+  done
+fi
+
+##################################################################
+#EDIT THIS TO OVERWRITE GRIB FILES SELECTION FOR DEBUG PURPOSES
+##################################################################
+#FILE_ANA_ARRAY[0]="$INIDIR/ecmwf.OD.${YEARB}${MONTHB}${DAYB}.18"
+#FILE_ANA_ARRAY[1]="$INIDIR/ecmwf.OD.${YEAR}${MONTH}${DAY}.00"
+#FILE_ANA_ARRAY[2]="$INIDIR/ecmwf.OD.${YEAR}${MONTH}${DAY}.06"
+#FILE_ANA_ARRAY[3]="$INIDIR/ecmwf.OD.${YEAR}${MONTH}${DAY}.12"
+#FILE_ANA_ARRAY[0]="$INIDIR/D1D03021200030318001"
+#FILE_ANA_ARRAY[1]="$INIDIR/D1D03021200030400001"
+#FILE_ANA_ARRAY[2]="$INIDIR/D1D03021200030406001"
+#FILE_ANA_ARRAY[3]="$INIDIR/D1D03021200030412001"
+#FILE_ANA_ARRAY[0]="$INIDIR/mgn.FC-FC.OD.${YEAR}${MONTH}${DAY}.12.36"
+#FILE_ANA_ARRAY[1]="$INIDIR/mgn.FC-FC.OD.${YEAR}${MONTH}${DAY}.12.42"
+#FILE_ANA_ARRAY[2]="$INIDIR/mgn.FC-FC.OD.${YEAR}${MONTH}${DAY}.12.48"
+#FILE_ANA_ARRAY[3]="$INIDIR/mgn.FC-FC.OD.${YEAR}${MONTH}${DAY}.12.54"
+##################################################################
+
+TMP=0
+while [ $TMP -lt $NUMHOURS ]; do
+INIT_ARRAY[$TMP]="${FILE_ANA_ARRAY[$TMP]}"
+INIT_ARRAY_BASE[$TMP]=$(basename "${INIT_ARRAY[$TMP]}")
+TMP=$((TMP+1))
+done
+
+ANA_LIST="${FILE_ANA_ARRAY[@]}"
+#Number of ecmwf to iterate, starting from first
+#NUMANA=${#FILE_ANA_ARRAY[@]}
+NUMANA=$NUMHOURS
+TMP=${#FILE_ANA_ARRAY[@]}
+[ $GENERATELIST -eq 0 ] && log "ANA_LIST=$ANA_LIST"
+if [ $NUMANA -ne $TMP ]; then
+  error "!!! In filedef.var: The number of INPUT grib file is wrong ( $TMP instead of $NUMANA ) - ABORTING"
+fi

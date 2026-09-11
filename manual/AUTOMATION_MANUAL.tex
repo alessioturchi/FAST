@@ -1,0 +1,87 @@
+\documentclass[a4paper,11pt,twoside,openright,english]{article}
+\usepackage{babel,epsfig,amssymb,amsmath,amsthm,wasysym,pifont,latexsym,rotating,setspace}
+\usepackage{graphicx}
+\usepackage[utf8]{inputenc}
+\usepackage{listings}
+\usepackage{float}
+\usepackage{multirow,bigdelim}
+\usepackage{color}
+\usepackage{longtable}
+\usepackage{hyperref}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric,arrows.meta,positioning,fit,backgrounds}
+\definecolor{dkgreen}{rgb}{0,0.6,0}
+\definecolor{gray}{rgb}{0.5,0.5,0.5}
+\definecolor{mauve}{rgb}{0.58,0,0.82}
+\pagestyle{plain}
+\topmargin -0.5cm
+\oddsidemargin 0cm
+\evensidemargin 0cm
+\textwidth 16cm
+\textheight 24cm
+
+\lstset{frame=tb,
+  language=bash,
+  aboveskip=3mm,
+  belowskip=3mm,
+  showstringspaces=false,
+  columns=flexible,
+  basicstyle={\small\ttfamily},
+  numbers=none,
+  numberstyle=\tiny\color{gray},
+  commentstyle=\color{dkgreen},
+  stringstyle=\color{mauve},
+  breaklines=true,
+  breakatwhitespace=true,
+  tabsize=3
+}
+
+\newcommand{\specialcell}[2][c]{%
+  \begin{tabular}[#1]{@{}c@{}}#2\end{tabular}}
+
+\tikzset{
+  startstop/.style={rectangle, rounded corners, minimum height=0.9cm, minimum width=3.2cm,
+    text width=3.0cm, align=center, draw=black, fill=orange!25, font=\small},
+  process/.style={rectangle, minimum height=0.9cm, minimum width=4.2cm,
+    text width=4.0cm, align=center, draw=black, fill=blue!12, font=\small},
+  mesonh/.style={rectangle, minimum height=0.9cm, minimum width=4.2cm,
+    text width=4.0cm, align=center, draw=black, fill=gray!18, font=\small},
+  decision/.style={diamond, aspect=2.2, minimum height=0.9cm, minimum width=3.6cm,
+    text width=2.3cm, align=center, draw=black, fill=yellow!25, font=\scriptsize, inner sep=1pt},
+  wkarrow/.style={-{Latex[length=2mm]}, thick},
+  wknote/.style={rectangle, minimum height=0.7cm, text width=3.6cm, align=center,
+    draw=black, dashed, fill=green!8, font=\scriptsize}
+}
+
+\begin{document}
+
+\begin{center}
+  \begin{LARGE}
+    \textbf{FAST AUTOMATION MODULE}\\
+    \textbf{MANUAL}\\
+  \end{LARGE}
+  \vspace{1cm}
+  \begin{footnotesize}
+    \textbf{Generic single-configuration edition}\\
+    \textbf{\today}\\
+  \end{footnotesize}
+  \vspace{1cm}
+\end{center}
+
+\tableofcontents
+\newpage
+
+\input{sections/01_introduction.tex}
+\input{sections/02_usage.tex}
+\input{sections/03_dependencies_installation.tex}
+\input{sections/04a_configuration_overview.tex}
+\input{sections/04b_globals_var.tex}
+\input{sections/04c_pgd_var.tex}
+\input{sections/04d_run_var.tex}
+\input{sections/04e_times_var.tex}
+\input{sections/04f_backup_var.tex}
+\input{sections/04g_filedef_var.tex}
+\input{sections/05_executables.tex}
+\input{sections/06_output_files.tex}
+
+\end{document}

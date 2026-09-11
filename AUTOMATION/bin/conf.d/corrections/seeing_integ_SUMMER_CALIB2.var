@@ -1,0 +1,6 @@
+#Seeing - integrated variable corrections
+#MULT=multiplicative factor	SUM=Additive factor
+# SUMMER CALIB2 CORECTION = 1./0.831
+#Only a single line with two numbers
+#MULT	SUM
+1. 0.

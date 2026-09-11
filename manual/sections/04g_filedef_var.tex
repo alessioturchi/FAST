@@ -1,0 +1,38 @@
+\subsection{filedef.var}
+\label{sec:filedef}
+\texttt{filedef.var} is mostly scripted logic rather than user-facing parameters: it implements the
+search for the day's PGD files, and the wait/retrieval/validation of the initialization files described
+in Section~\ref{sec:usage} (matching against \texttt{HOUR\_LIST} from \texttt{times.var}, retrying from
+the backup init server after \texttt{TIMELIMIT}, verifying MD5 checksums, merging orography via
+\texttt{grib\_copy}). It must be sourced after \texttt{run.var} and \texttt{times.var}, on which its
+logic depends.
+
+Despite the file's own header warning not to modify anything past a certain point, two variables here
+\textbf{do sometimes legitimately need editing}, because they encode the forecast-data provider's
+current naming convention for the delivered files rather than anything internal to FAST:
+\begin{lstlisting}
+BASEINITNAME="string" : expected base filename of the day's raw forecast files.
+                        [current: "D2D${MONTH}${DAY}${FRCSTDATECOMPUTED}00"]
+BASEANAFILE="string"  : expected filename of the initial analysis file (the one grib_copy
+                        merges orography from). Built by repeating the BASEINITNAME
+                        date/hour tokens and appending a trailing "001" segment.
+                        [current starts: "D2D${MONTH}${DAY}${FRCSTDATECOMPUTED}00..."]
+\end{lstlisting}
+If the provider ever changes how it names the files it delivers, these two variables are the ones to
+update to match; the rest of the search/retrieval logic is built on top of them and should not need to
+change.
+
+\textbf{TESTRUN=1 behaviour.} When \texttt{TESTRUN=1} (\texttt{globals.var}), all of the search/wait/
+retrieval logic above is skipped outright, and every element of \texttt{FILE\_ANA\_ARRAY} (the array of
+init file paths consumed by the rest of \texttt{run.sh}) is set to a non-existent placeholder
+(\texttt{\$\{INIDIR\}/foo}) rather than a real file. For a \texttt{TESTRUN=1} run to actually work, the
+commented-out block near the end of the file must be edited by hand:
+\begin{lstlisting}
+##################################################################
+#EDIT THIS TO OVERWRITE GRIB FILES SELECTION FOR DEBUG PURPOSES
+##################################################################
+\end{lstlisting}
+Uncommenting and filling in the \texttt{FILE\_ANA\_ARRAY[...]=...} lines there (a few worked examples,
+commented out, are already present as a starting point) is what supplies real, existing file paths in
+place of the placeholder -- this is not an optional convenience for advanced debugging, it is the only
+way \texttt{TESTRUN=1} produces a working run at all.

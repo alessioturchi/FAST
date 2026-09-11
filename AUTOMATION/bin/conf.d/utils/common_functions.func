@@ -1,0 +1,1170 @@
+#!/bin/bash
+convert_function_png(){
+  #Usage: convert_function <nomefile>
+  #Convert graphic file $1 into png
+  NAMEFILE="$1"
+  NAMEFILECONV="${NAMEFILE%.*}"
+  /usr/bin/convert -trim +repage -background white -density 300x300 "${NAMEFILE}" -alpha off -geometry 600x600 -quality 100 "${NAMEFILECONV}.png"
+}
+convert_function_gif(){
+  #Usage: convert_function <nomefile>
+  #Convert graphic file $1 into gif
+  NAMEFILE="$1"
+  NAMEFILECONV="${NAMEFILE%.*}"
+  /usr/bin/convert -trim +repage -background white -density 300x300 "${NAMEFILE}" -alpha off -geometry 600x600 -quality 100 "${NAMEFILECONV}.gif"
+}
+#Need to export this in order to use it with parallel
+export -f convert_function_png
+export -f convert_function_gif
+
+check_needed_variables(){
+  #Usage: check_needed_variabls <varname>
+  #This checks for important missing variables used in functions
+  #Error message from this function goes into die.log (since $LOGDIR may not exist)
+  VARNAME="$1"
+  if [ $(set | awk -F "=" '{print $1}' |grep -x "$VARNAME"|wc -l) -ne 1 ]; then
+    echo "!!!!!  VARIABLE $VARNAME is not defined !!!!! - ABORTING"
+    echo "!!!!!  VARIABLE $VARNAME is not defined !!!!! - ABORTING" >> die.log
+    exit 1
+  fi
+}
+
+rotate_log(){
+  #Usage: log <logtext>
+  #Function to log messages <logtext> into $LOGFILE in $LOGDIR
+  check_needed_variables "LOGDIR"
+  check_needed_variables "LOGFILE"
+  check_needed_variables "ERRFILE"
+  if [ $GENERATELIST -eq 0 ]; then
+    LOG_FILE_EXTENSION="${LOGFILE##*.}"
+    LOG_FILE_NAME="${LOGFILE%.*}"
+    ERR_FILE_EXTENSION="${ERRFILE##*.}"
+    ERR_FILE_NAME="${ERRFILE%.*}"
+    NUMLOG=0
+    while [ -e "${LOG_FILE_NAME}_${NUMLOG}.${LOG_FILE_EXTENSION}" ]; do
+      NUMLOG=$(($NUMLOG+1))
+      FLAG=1
+    done
+    LOGFILE="${LOG_FILE_NAME}_${NUMLOG}.${LOG_FILE_EXTENSION}"
+    NUMLOG=0
+    while [ -e "${ERR_FILE_NAME}_${NUMLOG}.${ERR_FILE_EXTENSION}" ]; do
+      NUMLOG=$(($NUMLOG+1))
+      FLAG=1
+    done
+    ERRFILE="${ERR_FILE_NAME}_${NUMLOG}.${ERR_FILE_EXTENSION}"
+    echo "LOGFILE rotated to ${LOGFILE}"
+  fi
+}
+
+log(){
+  #Usage: log <logtext>
+  #Function to log messages <logtext> into $LOGFILE in $LOGDIR
+  check_needed_variables "LOGDIR"
+  check_needed_variables "LOGFILE"
+  test -d "$LOGDIR" || mkdir -p "$LOGDIR"
+  date +%F/%T >> "$LOGFILE"
+  echo "$1" >> "$LOGFILE"
+  echo "$1"
+}
+
+log_variable_file(){
+  #Usage: log_variable_file <filename>
+  #Extract variable names from a file containing variables, removes comments and scripts and output the variable name together with its value into a logfile
+  filename="$1"
+  #remove comments and select only lines with "="
+  log "********"
+  log " **   FILE NAME = $filename"
+  for iif in $(grep -vE '(^[[:space:]]*($|(#|!|;|//)))' "$filename" |grep "="|cut -d"=" -f1|sed -e 's/ //g'); do
+    case $(echo "${iif}"|grep -v '\$'|cut -c1) in
+      #Select only lines starting with UPPERCASE
+      [[:upper:]] ) echo "${iif}=${!iif}" >> "$LOGFILE"
+    esac
+  done
+  log "********"  >> "$LOGFILE"
+}
+
+clear_old(){
+  #Usage: clear_old
+  #clear everything from $WORKDIR/
+  #Directories INIT and PGD are not removed since -f is used
+  check_needed_variables NOPREP
+  check_needed_variables NORUN
+  check_needed_variables NODIAG
+  check_needed_variables OUTDIR_REAL
+  check_needed_variables OUTPUT_MNH
+  check_needed_variables DIAG_MNH
+  check_needed_variables ASCII_DIR
+  check_needed_variables PLOT_DIR
+  check_needed_variables ERROR_OUTPUT_FILE
+  log "*** CLEARING OLD FILES"
+  for iif in $(find -maxdepth 1 -type l); do
+    rm "${iif}" -f
+  done
+  test -f "$ERROR_OUTPUT_FILE" && rm "$ERROR_OUTPUT_FILE" -f
+  rm *.dat -f
+  rm OUTPUT_* -f
+  rm file_for_xtransfer pipe_name -f
+  rm *.nam -f
+  rm *.{des,lfi} -f
+  rm PRE_REAL1* -f
+  rm SPAWN1* -f
+  rm EXSEG* -f
+  rm die.log *.out *.des *.lfi PRESSURE REMAP* -f
+  rm core* -f
+  rm FICJD LISTING_DIA OUT_DIA -f
+#  rm LOG/* -f
+  [ $NOPREP -eq 0 ] && log "* CLEARING ${OUTDIR_REAL}"
+  [ $NOPREP -eq 0 ] && rm "${OUTDIR_REAL}" -rf
+  [ $NORUN -eq 0 ] && log "CLEARING ${OUTPUT_MNH} ${DAT_DIR}"
+  [ $NORUN -eq 0 ] && rm "${OUTPUT_MNH}" -rf
+  [ $NORUN -eq 0 ] && rm "${DAT_DIR}" -rf
+  [ $NODIAG -eq 0 ] && log "CLEARING ${DIAG_MNH}"
+  [ $NODIAG -eq 0 ] && rm "${DIAG_MNH}" -rf
+  [ $NOFICVAL -eq 0 ] && log "CLEARING ${FICVAL_DIR}"
+  [ $NOFICVAL -eq 0 ] && rm "${FICVAL_DIR}" -rf
+  [ $NOPLOT -eq 0 ] && log "CLEARING ${PLOT_DIR} ${PLOTDAT_DIR}"
+  [ $NOPLOT -eq 0 ] && rm "${PLOT_DIR}" -rf
+  [ $NOPLOT -eq 0 ] && rm "${PLOTDAT_DIR}" -rf
+  [ $NORUN -eq 0 ] && [ $NOFICVAL -eq 0 ] && [ $NOPLOT -eq 0 ] && log "CLEARING ${ASCII_DIR}"
+  [ $NORUN -eq 0 ] && [ $NOFICVAL -eq 0 ] && [ $NOPLOT -eq 0 ] && rm "${ASCII_DIR}" -rf
+  log "*** CLEARING OLD FILES"
+}
+
+send_mail_finished(){
+  #Usage: send_mail <subject> <text>
+  #Used to sent a mail from $FROM_ADDRESS (Subject: <subject   Body:<text>) to confugured string of mail addresses $MAIL_ADDRESS
+  #Basic formatting is taken from file $MAIL_TEMPLATE
+  check_needed_variables "UTILDIR"
+  check_needed_variables "MAIL_ADDRESS"
+  check_needed_variables "FROM_ADDRESS"
+  check_needed_variables "GENERATELIST"
+  check_needed_variables "ERRFILE"
+  
+  if $(test -f "$ERRFILE"); then
+    ${UTILDIR}/sendmail_gmail.py "$(uname -n) ${1}" "${2}" "${FROM_ADDRESS}" "${MAIL_ADDRESS}" "${ERRFILE}"
+  else
+    ${UTILDIR}/sendmail_gmail.py "$(uname -n) ${1}" "${2}" "${FROM_ADDRESS}" "${MAIL_ADDRESS}"
+  fi
+
+  return 0
+}
+
+
+send_mail_error(){
+  #Usage: send_mail <subject> <text>
+  #Used to sent a mail from $FROM_ADDRESS (Subject: <subject   Body:<text>) to confugured string of mail addresses $MAIL_ADDRESS
+  #Basic formatting is taken from file $MAIL_TEMPLATE
+  check_needed_variables "UTILDIR"
+  check_needed_variables "MAIL_ADDRESS"
+  check_needed_variables "FROM_ADDRESS"
+  check_needed_variables "LOGDIR"
+  check_needed_variables "LOGFILE"
+  check_needed_variables "ERRFILE"
+  check_needed_variables "GENERATELIST"
+
+  if [ $GENERATELIST -eq 0 ]; then
+    log " -- Sending mail"
+    if $(test -f "$ERRFILE"); then
+      ${UTILDIR}/sendmail_gmail.py "$(uname -n) ${1}" "${2}" "${FROM_ADDRESS}" "${MAIL_ADDRESS}" "${ERRFILE}"
+    else
+      ${UTILDIR}/sendmail_gmail.py "$(uname -n) ${1}" "${2}" "${FROM_ADDRESS}" "${MAIL_ADDRESS}"
+    fi
+  fi
+
+  return 0
+}
+
+error(){
+  #Usage: error <errortext>
+  #Function to print errors on $LOGFILE and $ERRFILE
+  #Also sends a message to predetermined list with all logged output
+  #This function automatically exit the script with EXIT_STATUS=1
+  check_needed_variables "LOGDIR"
+  check_needed_variables "LOGFILE"
+  check_needed_variables "ERRFILE"
+  check_needed_variables "TESTRUN"
+  check_needed_variables "NESTING"
+  check_needed_variables "MAIL_PREFIX"
+  check_needed_variables "ERROR_OUTPUT_FILE"
+  test -d "$LOGDIR" || mkdir -p "$LOGDIR"
+  TIMESTAMP=$(date +"%F/%T %z")
+  echo "$TIMESTAMP Florence Time" >> "$ERRFILE"
+  echo "$TIMESTAMP" >> "$LOGFILE"
+  echo "$1" >> "$ERRFILE"
+  echo "$1" >> "$LOGFILE"
+  echo "$1"
+  [ $TESTRUN -eq 0 ] &&  send_mail_error "${MAIL_PREFIX}:ERROR $TIMESTAMP" "$TIMESTAMP ${NESTING}DOM - $1"
+  echo "ERROR ${MAIL_PREFIX}:ERROR $TIMESTAMP" "$TIMESTAMP ${NESTING}DOM - $1" > "$ERROR_OUTPUT_FILE"
+  exit 1
+}
+
+error_soft(){
+  #Usage: error_soft <errortext>
+  #Function to print errors on $LOGFILE and $ERRFILE
+  #Different from error() since it doesn't stop the running program
+  check_needed_variables "LOGDIR"
+  check_needed_variables "LOGFILE"
+  check_needed_variables "ERRFILE"
+  check_needed_variables "TESTRUN"
+  check_needed_variables "NESTING"
+  check_needed_variables "MAIL_PREFIX"
+  test -d "$LOGDIR" || mkdir -p "$LOGDIR"
+  TIMESTAMP=$(date +"%F/%T %z")
+  echo "$TIMESTAMP Florence Time" >> "$ERRFILE"
+  echo "$TIMESTAMP" >> "$LOGFILE"
+  echo "$1" >> "$ERRFILE"
+  echo "$1" >> "$LOGFILE"
+  echo "$1"
+  [ $TESTRUN -eq 0 ] &&  send_mail_error "${MAIL_PREFIX}: SOFT ERROR $TIMESTAMP" "$TIMESTAMP ${NESTING}DOM - $1"
+  return 0
+}
+
+check_directory(){
+  #Usage: check_directory <path>
+  #Checks for correct directory path in a variable (no last "/")
+  test -d "$1" || mkdir -p "$1"
+  test -d "$1" || error "!!! check_directory: $1 is not a valid directory - ABORTING"
+  string="$1"; stringlen=${#string};
+  if [ $(echo "$string"| awk -v var=$stringlen '{ string=substr($0, var); print string; }') = '/' ]; then
+    error "!!! check_directory: $1 directory variable ends with /, please remove last character - ABORTING"
+  fi
+  return 0
+}
+
+check_ascii(){
+  #Parse external arguments and check $1 is a regular ascii config file, else exits with EXIT_STATUS=1
+  #This is largely optional but can be useful if someone formats config files with other operative systems (Windows)
+  if [ ${#@} -gt 0 ]; then
+    if [ ${#@} -gt 1 ]; then
+      log "check_ascii: Too many arguments passed"
+      log "check_ascii: Please select only one valid config file"
+      error "!!! check_ascii: Error running check_ascii - ABORTING"
+      return 1
+    fi
+    if [ $(file $1|cut -d" " -f 2) = "ASCII" ]; then
+      if [ $(file $1|grep CRLF|wc -l) -ge 1 ]; then
+        log "check_ascii: Config file has CRLF line terminators (Windows problem)"
+        log "check_ascii: Please solve this"
+        error "!!! check_ascii: Error running check_ascii on $1 - ABORTING"
+        return 1
+      else
+        return 0
+      fi
+    else
+      log "check_ascii: File '$1' unknown"
+      log "check_ascii: Check that '$1' is an ASCII text \(man file\)"
+      error "!!! check_ascii: Error running check_ascii on $1 - ABORTING"
+      return 1
+    fi
+  else
+    log "check_ascii: No config file selected"
+    log "check_ascii: Please pass a valid config file as an argument"
+    error "!!! check_ascii: Error running check_ascii on $1 - ABORTING"
+    return 1
+  fi
+}
+
+check_link(){
+  #Usage check_link <filename> <namelink>
+  #checks that namelink is a link and removes it if existing
+  #finally links <filename> to <namelink>
+  if test -L "$2"; then
+    rm "$2"
+  else
+    if test -e "$2"; then
+      error "!!! check_link: file $2 esists and is not a link!"
+    fi
+  fi
+  ln -s "$1" "$2"
+  return 0
+}
+
+check_pgd(){
+  #Usage: check_pgd
+  #Function to check that pgd directory exists, pgd files exist and everything is fine
+  check_needed_variables "PGDDIR"
+  check_needed_variables "PGD_LIST"
+  test -d $PGDDIR || mkdir -p $PGDDIR
+  if test -d "$PGDDIR" ; then
+    TMPNUM=0
+    while [ $TMPNUM -lt $NUMPGD ]; do
+      test -f "${PGD_ARRAY[$TMPNUM]}.lfi" || error "!!! check_pgd: ${PGD_ARRAY[$TMPNUM]}.lfi unknown - ABORTING"
+      test -f "${PGD_ARRAY[$TMPNUM]}.des" || error "!!! check_pgd: ${PGD_ARRAY[$TMPNUM]}.des unknown - ABORTING"
+      TMPNUM=$(($TMPNUM+1))
+    done
+  else
+    error "!!! check_pgd: File '$PGDDIR' unknown (not a regular directory) - ABORTING"
+  fi
+  return 0
+}
+
+move_directory_finished() {
+  #Usage move_directory_finished <dir_to_move> <base_dir> <varname>
+  #It moves <dir_to_move> to ${PREPARE_DIR} respecting the directory hierarchy with respect to  <base_dir>.
+  #It finally writes <varname> containing the new pats to ${DATE_LASTLOG}
+  check_needed_variables "PREPARE_DIR"
+  check_needed_variables "DATE_LASTLOG"
+  INDIR="${1}"
+  BASEDIR="${2}"
+  OUTVARNAME="${3}"
+  LASTPATH=$(basename ${INDIR})
+  while [ $(dirname ${INDIR}) != "${BASEDIR}" ]; do
+    INDIR=$(dirname ${INDIR})
+    LASTPATH="$(basename ${INDIR})/${LASTPATH}"
+  done
+  if [ -d "${PREPARE_DIR}/${LASTPATH}" ]; then
+    error "!!! ERORR: move_directory_finished: Directory ${PREPARE_DIR}/${LASTPATH} is already existant"
+  else
+    NEWDIR=$(dirname "${PREPARE_DIR}/${LASTPATH}")
+    mkdir -p "${NEWDIR}"
+    EXIT=$?
+    [ $EXIT -eq 0 ] || error "!!! ERROR: move_directory_finished: error creating directory ${NEWDIR}"
+  fi
+  #Updating the file containing the variables to the new path
+  echo "${OUTVARNAME}=${PREPARE_DIR}/${LASTPATH}" >> "${DATE_LASTLOG}"
+  mv "$(dirname ${INDIR})/${LASTPATH}" "${NEWDIR}/"
+  EXIT=$?
+  [ $EXIT -eq 0 ] || error "!!! ERROR: move_directory_finished: error moving directory ${INDIR}/${LASTPATH} to ${NEWDIR}"
+  return 0
+}
+
+find_directory_finished() {
+  #Usage find_directory_finished <dir_to_find> <base_dir>
+  #It echoes the new pat of <dir_to_find> in ${PREPARE_DIR} respecting the directory hierarchy with respect to  <base_dir>.
+  check_needed_variables "PREPARE_DIR"
+  INDIR="${1}"
+  BASEDIR="${2}"
+  LASTPATH=$(basename ${INDIR})
+  while [ $(dirname ${INDIR}) != "${BASEDIR}" ]; do
+    INDIR=$(dirname ${INDIR})
+    LASTPATH="$(basename ${INDIR})/${LASTPATH}"
+    if [ $(dirname ${INDIR}) = $(basename ${INDIR}) ]; then
+      #We reached the root directory!
+      break
+    fi
+  done
+  test -d "${PREPARE_DIR}/${LASTPATH}" || return 1
+  echo "${PREPARE_DIR}/${LASTPATH}"
+  return 0
+}
+
+compress_file_parallel(){
+  #Usage: compress_file <filename>
+  #Compress lfi file <filename>
+  FILENAME="$1"
+  bzip2 "$FILENAME"
+  EXIT=$?
+  return $EXIT
+}
+
+compress_file(){
+  #Usage: compress_file <directory>
+  #Compress lfi files inside <directory>
+  DIRCOMPRESS="$1"
+#  OLDDIR=$(pwd)
+  FLAG=0
+#  cd "${DIRCOMPRESS}"
+  #If compressed file does not exists, compress it
+  for iif in $(find "${DIRCOMPRESS}" -maxdepth 1 -name "*.lfi"|grep -v ".Z.lfi"|grep -v ".lfi.bz2"|sort); do
+    TESTFILE="${iif%.*}.lfi.bz2"
+    if $(test -e "${TESTFILE}"); then
+      error_soft "!!! compress_file: file $TESTFILE already exists - CONTINUE WITHOUT COMPRESSING"
+      continue
+    fi
+    if [ $FLAG -eq 0 ]; then
+      log " -- Compressing MESO-NH OUTPUT files in ${DIRCOMPRESS} -- "
+      FLAG=1
+    fi
+    log "    ** compressing ${iif} **"
+    bzip2 "${iif}"
+    EXIT=$?
+    [ $EXIT -eq 0 ] || error "!!! compress_file: error compressing file ${iif} in ${DIRCOMPRESS} - ABORTING"
+  done
+#  cd "${OLDDIR}"
+  return 0
+}
+
+decompress_file_parallel(){
+  #Usage: decompress_file <filename>
+  #Un-compress lfi file <filename>
+  FILENAME="$1"
+  bunzip2 "$FILENAME"
+  EXIT=$?
+  return $EXIT
+}
+
+decompress_file(){
+  #Usage: decompress_file <directory>
+  #Un-compress lfi files inside <directory>
+  DIRCOMPRESS="$1"
+#  OLDDIR=$(pwd)
+  FLAG=0
+#  cd "${DIRCOMPRESS}"
+  for iif in $(find "${DIRCOMPRESS}" -maxdepth 1 -name "*.lfi.bz2"|sort); do
+    #Remove extension from file
+    FILEZ="${iif%.*}"
+    #If uncompressed file does not exists, uncompress it
+    if $(test -e "${FILEZ%.*}.lfi"); then
+      error_soft "!!! decompress_file: file ${FILEZ%.*}.lfi already exists - CONTINUE WITHOUT DECOMPRESSING"
+      continue
+    fi
+    if [ $FLAG -eq 0 ]; then
+      log " -- Decompressing files in ${DIRCOMPRESS} -- "
+      FLAG=1
+    fi
+    log "    ** uncompressing ${iif} **"
+    bunzip2 "${iif}"
+    EXIT=$?
+    [ $EXIT -eq 0 ] || error "!!! decompress_file: error decompressing file ${iif} in ${DIRCOMPRESS} - ABORTING"
+  done
+#  cd "${OLDDIR}"
+  return 0
+}
+
+namelists_real(){
+  check_needed_variables "NESTING"
+  check_needed_variables "NUMANA"
+  check_needed_variables "PGD_ARRAY_BASE"
+  check_needed_variables "YEAR"
+  check_needed_variables "MONTH"
+  check_needed_variables "DAY"
+  check_needed_variables "FRCSTDATECOMPUTED"
+  check_needed_variables "HOUR_ARRAY"
+  check_needed_variables "HOUR_ARRAY_REALNAMES"
+  check_needed_variables "NOPREP"
+  check_needed_variables "INIT_ARRAY_BASE"
+  check_needed_variables "INIT_ARRAY"
+  TMPNEST=0
+  TMPANA=0
+  while [ $TMPNEST -lt $NESTING ]; do
+#Let's start from the outer layer and descend later into the nested levels
+    if [ $TMPNEST -eq 0 ]; then
+      #Cycle on all the forcing ecmwf initial files.
+      while [ $TMPANA -lt $NUMANA ]; do
+#        NAMEPGDBASE=$(basename "${PGD_ARRAY_BASE[$TMPNEST]}"|cut -d"." -f1)
+        NAMEPGDBASE=$((TMPNEST+1))
+        ###################
+        DATEOUT="${YEAR}${MONTH}${DAY}.${FRCSTDATECOMPUTED}.${HOUR_ARRAY_REALNAMES[$TMPANA]}"
+        #Date file format is automatically taken from ecmwf files. Pray they never change format, else you should check this!
+        #DATEOUT=$(basename "${FILE_ANA_ARRAY[$TMPANA]}"|cut -c 12-19)
+        ###################
+        #Define fileout name (the long one, we will use a shorter link later)
+        FILE_FILEOUT_ARRAY[$TMPANA]="$OUTDIR_REAL/R_$NAMEPGDBASE.$DATEOUT"
+        FILE_FILEOUT_ARRAY_BASE[$TMPANA]=$(basename "${FILE_FILEOUT_ARRAY[$TMPANA]}")
+        if [ $NOPREP -eq 0 ]; then
+          #Do what you have to do, and do it well. However restrain from performing your duty if I'm debugging you, please.
+          prep_list_real "${INIT_ARRAY_BASE[$TMPANA]}" "${PGD_ARRAY_BASE[$TMPNEST]}" "${FILE_FILEOUT_ARRAY_BASE[$TMPANA]}" $TMPNEST $TMPANA
+        fi
+        TMPANA=$(($TMPANA+1))
+      done
+    else
+#      NAMEPGDBASE=$(basename "${PGD_ARRAY_BASE[$TMPNEST]}" |cut -d"." -f1)
+      NAMEPGDBASE="$((TMPNEST+1))"
+      ###################
+      DATEOUT="${YEAR}${MONTH}${DAY}.${FRCSTDATECOMPUTED}.${HOUR_ARRAY_REALNAMES[0]}"
+      #Date file format is automatically taken from ecmwf files. Pray they never change format, else you should check this!
+      #DATEOUT=$(basename "${FILE_ANA_ARRAY[0]}"|cut -c 12-19)
+      ###################
+      #Define fileout name (the long one, we will use a shorter link later)
+      FILE_FILEOUT_ARRAY[$TMPANA]="$OUTDIR_REAL/R_$NAMEPGDBASE.$DATEOUT"
+      FILE_FILEOUT_ARRAY_BASE[$TMPANA]=$(basename "${FILE_FILEOUT_ARRAY[$TMPANA]}")
+      #Check if we are on the first nested layer. If this is true the input should be FILE_FILEOUT_ARRAY[0], (the first one before forcing). Else everithing is standard.
+      if [ $TMPNEST -eq 1 ]; then
+        TMP=0
+      else
+        TMP=$(($TMPANA-1))
+      fi
+      INIT_ARRAY[$TMPANA]="${FILE_FILEOUT_ARRAY[$TMP]}"
+      INIT_ARRAY_BASE[$TMPANA]=$(basename "${INIT_ARRAY[$TMPANA]}")
+      if [ $NOPREP -eq 0 ]; then
+        #Do what you have to do, and do it well. However restrain from performing your duty if I'm debugging you, please.
+        TMP2=$((TMPNEST-1))
+        prep_list_real "${INIT_ARRAY_BASE[$TMPANA]}" "${PGD_ARRAY_BASE[$TMPNEST]}" "${FILE_FILEOUT_ARRAY_BASE[$TMPANA]}" $TMPNEST $TMPANA "${PGD_ARRAY_BASE[$TMP2]}"
+      fi
+      #Increment TMPANA (CALLNUMBER)
+      TMPANA=$(($TMPANA+1))
+    fi
+    #increment TMPNEST (NESTLEVEL)
+    TMPNEST=$(($TMPNEST+1))
+  done
+  return 0
+}
+
+prep_list_real(){
+  #Usage: prep_list_real <HATMFILE_VALUE> <HPGDFILE_VALUE> <FILEOUT> <NESTLEVEL> <CALLNUMBER> <OLDPGD (only for spawning - nesting)>
+  #Prepares namelist for PREP_REAL_CASE and SPAWNING phases.
+  #Basic namelist configuration is taken from $NLPREP $NLPREPNEST and $NLPREPSPAWN. See those files for format description
+  #Variables in above basic namelists are expanded through sed subsitution.
+  #NESTLEVEL=VAR4 controls if we are in a regular run (NESTLEVEL=0) or in a nested run (NESTLEVEL >=1). In a nested run we also generate spawning files.
+  #In the last case NESTLEVEL indicate the level of nesting (1,2...).
+  #CALLNUMBER=VAR5 controls the iteration number, so REAL files are prepared and numbered accordingly. We should increase CALLNUMBER each time the routine is called.
+  #If we are in a regular run (NESTLEVEL=0) the variables passed are the following
+  #Template namelist is taken from $NLPREP
+  #HATMFILE_VALUE=VAR1=the ecmwf file containing the raw initial data
+  #HPGDFILE_VALUE=VAR2=the PGD file for the site, corresponding to the size of the level in question.
+  #FILEOUT=VAR3=REAL output file
+  #OLDPGD=VAR6=This is not used in a regular run
+  #If we are in a nested run (NESTLEVEL>=1) the variables passed are the following
+  #Template namelists are taken from $NLPREPNEST (REAL) and $NLPREPSPAWN (SPAWNING)
+  #HATMFILE_VALUE=VAR1=the output file from the above level (remember that we are nested now, so the previous output is input).
+  #HPGDFILE_VALUE=VAR2=the PGD file for the site, corresponding to the size of the level in question (nested).
+  #FILEOUT=VAR3=REAL output file
+  #OLDPGD=VAR6=the PGD file from the above level
+
+  VAR1="$1"
+  VAR2="$2"
+  VAR3="$3"
+  VAR4="$4"
+  VAR5="$5"
+  #Check if we are in a nested run and parse the sixth input
+  if [ ${VAR4} -ge 1 ]; then
+    VAR6="$6"
+  fi
+  check_needed_variables "OUTDIR_PREP"
+  check_needed_variables "NLDIR"
+  check_needed_variables "EXE_REAL"
+  check_needed_variables "LOGEXE"
+  check_needed_variables "LOGFILEEXEREAL"
+  check_needed_variables "LOGFILE"
+  #FORMAT THE ARRAYS FOR NAMELISTS
+  NAMELIST_REALARRAY[$VAR5]=X
+  NAMELIST_REALSPAWNARRAY[$VAR5]=X
+  #Select the proper template namelist for the current run
+  if [ ${VAR4} -eq 0 ]; then
+    check_needed_variables "NLPREP"
+    VARTOCAT1="$NLPREP"
+  else
+    check_needed_variables "NLPREPSPAWN"
+    check_needed_variables "NLPREPNEST"
+    check_needed_variables "EXE_SPAWNING"
+    VARTOCAT1="$NLPREPNEST"
+    VARTOCAT2="$NLPREPSPAWN"
+  fi
+  #For a nested run we must generate also spawning namelist
+  if [ ${VAR4} -ge 1 ]; then
+    NAMELIST1="$OUTDIR_PREP/SPAWN1.nam_${VAR4}.${VAR5}"
+    NAMELIST_REALSPAWNARRAY[$VAR5]="$OUTDIR_PREP/SPAWN1.nam_${VAR4}.${VAR5}"
+    grep -vE '(^[[:space:]]*($|(#|!|;|//)))' "$VARTOCAT2" |sed -e "s/CINIFILE_VALUE/${VAR1}/;s/YDOMAIN_VALUE/${VAR2}/;s/CINIFILEPGD_FILE/${VAR6}/" > "$NAMELIST1"
+    [ $GENERATELIST -eq 0 ] && log " - ${NAMELIST_REALSPAWNARRAY[$VAR5]} prepared"
+  fi
+  #Generate real namelist
+  NAMELIST="$OUTDIR_PREP/PRE_REAL1.nam_${VAR4}.${VAR5}"
+  NAMELIST_REALARRAY[$VAR5]="$OUTDIR_PREP/PRE_REAL1.nam_${VAR4}.${VAR5}"
+  grep -vE '(^[[:space:]]*($|(#|!|;|//)))' "$VARTOCAT1" |sed -e "s/HATMFILE_VALUE/${VAR1}/;s/HPGDFILE_VALUE/${VAR2}/;s/CINIFILE_FILE/${VAR3}/;s/CFILEPGD_FILE/${VAR6}/" > "$NAMELIST"
+  sed -e "s/NKMAX_VALUE/${NKMAX_VALUE}/;s/ZDZGRD_VALUE/${ZDZGRD_VALUE}/;s/ZDZTOP_VALUE/${ZDZTOP_VALUE}/;s/ZZMAX_STRGRD_VALUE/${ZZMAX_STRGRD_VALUE}/" -i "$NAMELIST"
+  sed -e "s/ZSTRGRD_VALUE/${ZSTRGRD_VALUE}/;s/ZSTRTOP_VALUE/${ZSTRTOP_VALUE}/" -i "$NAMELIST"
+  sed -e "s/CPRESOPT_VALUE/${CPRESOPT_VALUE}/" -i "$NAMELIST"
+  [ $GENERATELIST -eq 0 ] && log " - ${NAMELIST_REALARRAY[$VAR5]} prepared"
+  return 0
+}
+
+prep_list_run(){
+  #Usage: prep_list_run
+  #Prepares the namelist for the simulation from $NLRUN template (outer layer) and $NLRUNNEST (nested layers)
+  check_needed_variables "PREP_MNH"
+  check_needed_variables "NLDIR"
+  check_needed_variables "NAM_SIMU"
+  check_needed_variables "NAM_SEG"
+  check_needed_variables "NUMFILEOUT"
+  check_needed_variables "FILE_FILEOUT_ARRAY"
+  check_needed_variables "PGD_ARRAY"
+  check_needed_variables "XTSTEP_VAR"
+  check_needed_variables "CCLOUD_VAR"
+  check_needed_variables "XSEGLEN"
+  check_needed_variables "NUMOUTTIMES"
+  check_needed_variables "XFMOUT"
+  check_needed_variables "XSNG1"
+  check_needed_variables "YSNG1"
+  check_needed_variables "XSNG2"
+  check_needed_variables "YSNG2"
+  check_needed_variables "SEESTPOINT"
+  check_needed_variables "NLRUN"
+  check_needed_variables "NLRUNNEST"
+  check_needed_variables "XRIMKMAX"
+  check_needed_variables "PREP_MNH"
+  check_needed_variables "PREP_DIAG"
+  check_needed_variables "NDAD_ARRAY"
+  check_needed_variables "NDTRATIO_ARRAY"
+  #Check if we are really running or we only want to generate le long scripts
+  OLDNAMSEG="${NAM_SEG}"
+  OLDNAMSIMU="${NAM_SIMU}"
+  if [ $GENERATELIST -eq 1 ]; then
+    #If this is the case, sobstitute variables
+    TMP=0
+    while [ $TMP -lt $(($NUMHOURS + $NESTING -1)) ]; do
+      INDICE=$(($TMP+1))
+      FILE_FILEOUT_ARRAY_BASE[$TMP]='${FILEIN'"${INDICE}"'}'
+      TMP=$(($TMP+1))
+    done
+    TMP=0
+    while [ $TMP -lt $NESTING ]; do
+      INDICE=$(($TMP+1))
+      PGD_ARRAY_BASE[$TMP]='${PGD'"${INDICE}"'}'
+      TMP=$(($TMP+1))
+    done
+    XTSTEP_VAR='${DT1}'
+    TMP=0
+    while [ $TMP -lt $NESTING ]; do
+      INDICE=$(($TMP+1))
+      NDTRATIO_ARRAY[$TMP]='${DTR'"${INDICE}"'}'
+      TMP=$(($TMP+1))
+    done
+    CCLOUD_VAR='${CLOUD}'
+    NAM_SEG='${NAM_SEG}'
+    NAM_SIMU='${NAM_SIMU}'
+    XSEGLEN='${SEGL}'
+    TMP=0
+    while [ $TMP -lt $NUMOUTTIMES ]; do
+      INDICE=$(($TMP+1))
+      XFMOUT[$TMP]='${OUT'"${INDICE}"'}'
+      TMP=$(($TMP+1))
+    done
+    XSNG1='${XSNG1}'
+    YSNG1='${YSNG1}'
+    XSNG2='${XSNG2}'
+    YSNG2='${YSNG2}'
+  fi
+  #Prepare the first namelist for the $NESTLEVEL=0 simulation (outer layer)
+  #Template namelist taken from $NLRUN
+  NUMITER=0
+  NUMITERTRUE=$((NUMITER+1))
+  NAMELIST="${PREP_MNH}/EXSEG${NUMITERTRUE}.nam_${OLDNAMSIMU}_${OLDNAMSEG}"
+  NAMELIST_EXEARRAY[$NUMITER]="${NAMELIST}"
+  #Check PGD files exist
+  if [ $GENERATELIST -ne 1 ]; then
+    test -e "${PGD_ARRAY_BASE[$NUMITER]}.lfi" || error "!!! prep_list_run: file_PGD=${PGD_ARRAY_BASE[$NUMITER]}.lfi does not exist"
+    test -e "${PGD_ARRAY_BASE[$NUMITER]}.des" || error "!!! prep_list_run: file_PGD=${PGD_ARRAY_BASE[$NUMITER]}.des does not exist"
+  fi
+  # Print on namelist all the parameters in $NLDIR/$NLRUN, performing substitution of variables *_VAR
+  grep -vE '(^[[:space:]]*($|(#|!|;|//)))' "$NLRUN" |sed -e "s/XTSTEP_VAR/${XTSTEP_VAR}/" > "$NAMELIST"
+  sed -e "s/CCLOUD_VAR/${CCLOUD_VAR}/;s/CEXP_VAR/${NAM_SIMU}/;s/CSEG_VAR/${NAM_SEG}/;s/XSEGLEN_VAR/${XSEGLEN}/" -i "$NAMELIST"
+  sed -e "s/XSNG1_VAR/${XSNG1}/;s/YSNG1_VAR/${YSNG1}/;s/XSNG2_VAR/${XSNG2}/;s/YSNG2_VAR/${YSNG2}/;s/SEESTPOINT_VAR/${SEESTPOINT}/" -i "$NAMELIST"
+  sed -e "s/NMODEL_VAR/${NMODEL_VAR}/;s/CPRESOPT_VALUE/${CPRESOPT_VALUE}/" -i "$NAMELIST"
+  sed -e "s/DOM_FIRST/${DOM_FIRST}/;s/DOM_SECOND/${DOM_SECOND}/" -i "$NAMELIST"
+  sed -e "s/SUPCOMP_VAR/${SUPCOMP_VAR}/;s/MESODIAG_VAR/${MESODIAG_VAR}/" -i "$NAMELIST"
+  # edit &NAM_LUNITn line in namelist
+  sed -e "s/CINIFILE_FILE/${FILE_FILEOUT_ARRAY_BASE[0]}/;s/CINIFILEPGD_FILE/${PGD_ARRAY_BASE[$NUMITER]}/" -i "$NAMELIST"
+  # insert a line for each forcing file
+  CCPLFILE_LINE=""
+  TMP=1
+  while [ $TMP -lt $NUMANA ]; do
+    CCPLFILE_LINE="${CCPLFILE_LINE} ,CCPLFILE($TMP) = '${FILE_FILEOUT_ARRAY_BASE[$TMP]}'\n"
+    TMP=$(($TMP+1))
+  done
+  sed -e "s/CCPLFILE_LINE/${CCPLFILE_LINE}/" -i "$NAMELIST"
+  # edit &NAM_FMOUT line
+  #echo "&NAM_FMOUT XFMOUT(1,1) =${XFMOUT[0]}" >> "$NAMELIST"
+  # insert a line for each OUTPUT value
+  XFMOUT_LINE="XFMOUT(1,1) =${XFMOUT[0]}\n"
+  TMP=1
+  while [ $TMP -lt $NUMOUTTIMES ]; do
+    TMPXFMOUT=$(($TMP+1))
+    XFMOUT_LINE="${XFMOUT_LINE} ,XFMOUT(1,$TMPXFMOUT) =${XFMOUT[$TMP]}\n"
+    TMP=$(($TMP+1))
+  done
+  sed -e "s/XFMOUT_LINE/${XFMOUT_LINE}/" -i "$NAMELIST"
+  #Generating Nesting variables
+  TMPITER=1
+  NDAD_LINE=""
+  NDTRATIO_LINE=""
+  XWAY_LINE=""
+  #Doing that in a loop to edit whole line since the number of arguments is variable with $NESTING
+  while [ $TMPITER -le $NESTING ]; do
+    TMPITER2=$(($TMPITER-1))
+    NDAD_LINE="${NDAD_LINE} NDAD($TMPITER) = ${NDAD_ARRAY[$TMPITER2]},\n"
+    NDTRATIO_LINE="${NDTRATIO_LINE} NDTRATIO($TMPITER)=${NDTRATIO_ARRAY[$TMPITER2]},\n"
+    if [ $TMPITER -eq 1 ]; then
+      XWAY_LINE="XWAY(1)=1.,\n"
+    elif [ $TMPITER -lt $NESTING ]; then
+      XWAY_LINE="${XWAY_LINE} XWAY($TMPITER)=2.,\n"
+    else
+      XWAY_LINE="${XWAY_LINE} XWAY($TMPITER)=2."
+    fi
+    TMPITER=$(($TMPITER+1))
+  done
+  #Editing the whole bunch on the fly
+  sed -e "s/NDAD_LINE/${NDAD_LINE}/;s/NDTRATIO_LINE/${NDTRATIO_LINE}/;s/XWAY_LINE/${XWAY_LINE}/" -i "$NAMELIST"
+  [ $GENERATELIST -eq 0 ] && log " - $NAMELIST prepared"
+  #Prepare all other namelists for additional nesting levels (inner layers)
+  #Templates taken from $NLRUNNEST
+  NUMITER=1
+  NUMITERTRUE=$((NUMITER+1))
+  while [ $NUMITER -lt $NESTING ]; do
+    NAMELIST="$PREP_MNH/EXSEG${NUMITERTRUE}.nam_${OLDNAMSIMU}_${OLDNAMSEG}"
+    NAMELIST_EXEARRAY[$NUMITER]="${NAMELIST}"
+    if [ $GENERATELIST -ne 1 ]; then
+      test -e "${PGD_ARRAY_BASE[$NUMITER]}.lfi" || error "!!! prep_list_run: file_PGD=${PGD_ARRAY_BASE[$NUMITER]}.lfi does not exist"
+      test -e "${PGD_ARRAY_BASE[$NUMITER]}.des" || error "!!! prep_list_run: file_PGD=${PGD_ARRAY_BASE[$NUMITER]}.des does not exist"
+    fi
+    TMP2=$(($NUMITER-1))
+    TMP=$(($NUMANA+$TMP2))
+    # edit &NAM_LUNITn line in namelist
+    grep -vE '(^[[:space:]]*($|(#|!|;|//)))' "$NLRUNNEST" > "$NAMELIST"
+    sed -e "s/CCLOUD_VAR/${CCLOUD_VAR}/;s/XRIMKMAX_VAR/${XRIMKMAX[$TMP2]}/" -i "$NAMELIST"
+    sed -e "s/CPRESOPT_VALUE/${CPRESOPT_VALUE}/" -i "$NAMELIST"
+    sed -e "s/CINIFILE_FILE/${FILE_FILEOUT_ARRAY_BASE[$TMP]}/;s/CINIFILEPGD_FILE/${PGD_ARRAY_BASE[$NUMITER]}/" -i "$NAMELIST"
+#    if [ $NUMITER -eq 1 ]; then
+#      grep -vE '(^[[:space:]]*($|(#|!|;|//)))' "$NLRUNNEST" |sed -e "s/CCLOUD_VAR/${CCLOUD_VAR}/;s/XRIMKMAX_VAR/0.0017/" >> "$NAMELIST"
+#    else
+#      grep -vE '(^[[:space:]]*($|(#|!|;|//)))' "$NLRUNNEST" |sed -e "s/CCLOUD_VAR/${CCLOUD_VAR}/;s/XRIMKMAX_VAR/0.0033/" >> "$NAMELIST"
+#    fi
+    [ $GENERATELIST -eq 0 ] && log " - $NAMELIST prepared"
+    NUMITER=$((NUMITER+1))
+    NUMITERTRUE=$((NUMITER+1))
+  done
+  return 0
+}
+
+prep_list_diag(){
+  #Usage: prep_list_diag <MNH_OUTPUT_FILE> <NESTLEVEL> <XALT_OT2D_INF_VALUE> <XALT_OT2D_SUP_VALUE>
+  #This function generates the DIAG ("*_dg.{des,lfi}")files and performs conv2dia on such output.
+  #Namelists are taken from $NLDIAG and $NLDIRCONV defined in run.var. See namelists for more info
+  #Outputs are stored in $DIAG_MNH directory. Files *_<fromheight>_<toheight>_dg.{des,lfi} are outputs from DIAG, while d.<fromheight>_<toheight>_* are outputs from conv2dia.
+  check_needed_variables "DIAG_MNH"
+  check_needed_variables "NLDIAG"
+  check_needed_variables "EXE_DIAG"
+  check_needed_variables "NLDIRCONV"
+  check_needed_variables "EXE_CONV2DIA"
+  check_needed_variables "PREP_DIAG"
+  check_needed_variables "DIAG_MNH"
+  check_needed_variables "OUTPUT_MNH"
+  check_needed_variables "PGDDIR"
+  check_needed_variables "LOGFILEEXEDIAG"
+  check_needed_variables "LOGFILE"
+
+  VAR1="$1"
+  VAR2="$2"
+  VAR3="$3"
+  VAR4="$4"
+  TMPNEST=$(($VAR2-1))
+  #The following ugly lines are necessary due to the fact that MESO-NH abhors long filenames
+  #Blame MESO-NH developers for this
+  EXITNUM=$(basename "${VAR1}"|cut -d"." -f4)
+  LEVELNUMOUT=$(basename "${VAR1}"|cut -d"." -f2)
+  FNAME="${LEVELNUMOUT}_${EXITNUM}_${VAR3}_${VAR4}"
+  #Definig input file stripping the full path
+  NAMEFILE=$(basename "${VAR1}")
+  if $(test -f "$OUTPUT_MNH/${NAMEFILE}.lfi"); then
+    if $(test -f "$OUTPUT_MNH/${NAMEFILE}.des"); then
+      #Linking things into workdir. Yes, MESO-NH works this way...
+      ln -s "${OUTPUT_MNH}/${NAMEFILE}.des" "${NAMEFILE}.des"
+      ln -s "${OUTPUT_MNH}/${NAMEFILE}.lfi" "${NAMEFILE}.lfi"
+      check_link "${PGD_ARRAY[$TMPNEST]}.des" "${PGD_ARRAY_BASE[$TMPNEST]}.des"
+      check_link "${PGD_ARRAY[$TMPNEST]}.lfi" "${PGD_ARRAY_BASE[$TMPNEST]}.lfi"
+    else
+      #OOPS! Something is wrong
+      error "!!! prep_list_diag: file ${OUTPUT_MNH}/${NAMEFILE}.des does not exists - ABORTING"
+    fi
+  else
+      #OOPS! Something is wrong
+    error "!!! prep_list_diag: file ${OUTPUT_MNH}/${NAMEFILE}.lfi does not exists - ABORTING"
+  fi
+  #Long name of namelist
+  NAMELIST="${PREP_DIAG}/DIAG_${FNAME}.nam"
+  [ $GENERATELIST -eq 0 ] && log " - Preparing DIAG on $NAMELIST"
+  #Preparing namelist from template $NLDIAG with string substitution.
+  #YSUFFIX_VALUE must be small (5 or lest characters) since MESO-NH is so strict. I mean, did they fear to run out of memory by allocating longer strings??? WTF???
+  grep -vE '(^[[:space:]]*($|(#|!|;|//)))' "$NLDIAG" |sed -e "s/YINIFILE_VALUE/${NAMEFILE}/;s/PGD_FILE/${PGD_ARRAY_BASE[$TMPNEST]}/;s/XALT_OT2D_INF_VALUE/${VAR3}/;s/XALT_OT2D_SUP_VALUE/${VAR4}/;s/YSUFFIX_VALUE/_dg/" > "$NAMELIST"
+  #Copying namelists on workdir.
+  cp "$NAMELIST" DIAG1.nam
+  #Do we really want to spam the logfile with the noisy output from MESO-NH, do we log those cruft into a separate logfile or we simply print everything onscreen?
+  if [ $LOGEXE -eq 0 ]; then
+   "$EXE_DIAG"
+    EXIT=$?
+  elif [ $LOGEXE -eq 1 ]; then
+   "$EXE_DIAG" >> "$LOGFILEEXEDIAG"
+    EXIT=$?
+      echo "*******************************************************" >> "$LOGFILEEXEDIAG"
+      echo "*******************************************************" >> "$LOGFILEEXEDIAG"
+  else
+   "$EXE_DIAG" >> "$LOGFILE"
+    EXIT=$?
+  fi
+  [ $EXIT -eq 0 ] || error "!!! prep_list_diag: error generating diag data from $NAMEFILE - ABORTING"
+  [ $GENERATELIST -eq 0 ] && log " - DIAG on $NAMELIST ended"
+  #Start the conv2dia step
+  test -f "${NAMEFILE}_dg.lfi" || error "!!! prep_list_diag: file ${NAMEFILE}_dg.lfi does not exists after diag step - ABORTING"
+  test -f "${NAMEFILE}_dg.des" || error "!!! prep_list_diag: file ${NAMEFILE}_dg.des does not exists after diag step - ABORTING"
+  #long name of namelist
+  [ $GENERATELIST -eq 0 ] && log " - Preparing conv2dia on $NAMELIST"
+  NAMELIST="$DIAG_MNH/DIRCONV_${FNAME}.nam"
+  grep -vE '(^[[:space:]]*($|(#|!|;|//)))' "$NLDIRCONV" |sed -e "s/DIRCONV_IN_FILE/${NAMEFILE}_dg/;s/DIRCONV_OUT_FILE/d.${NAMEFILE}/" > "$NAMELIST"
+  if [ $LOGEXE -eq 0 ]; then
+    "$EXE_CONV2DIA" < "$NAMELIST"
+    EXIT=$?
+  elif [ $LOGEXE -eq 1 ]; then
+   "$EXE_CONV2DIA" < "$NAMELIST" >> "$LOGFILEEXEDIAG"
+    EXIT=$?
+      echo "*******************************************************" >> "$LOGFILEEXEDIAG"
+      echo "*******************************************************" >> "$LOGFILEEXEDIAG"
+  else
+   "$EXE_CONV2DIA" < "$NAMELIST" >> "$LOGFILE"
+    EXIT=$?
+  fi
+  [ $EXIT -eq 0 ] || error "!!! prep_list_diag: error using conv2dia on $NAMEFILE - ABORTING"
+  [ $GENERATELIST -eq 0 ] && log " - conv2dia on $NAMELIST ended"
+  #Renaming outputs from DIAG and conv2dia in order to have more meaningful subfixes and moving into $DIAG_MNH/
+  mv "d.${NAMEFILE}.lfi" "${DIAG_MNH}/d.${FNAME}.lfi"
+  mv "d.${NAMEFILE}.des" "${DIAG_MNH}/d.${FNAME}.des"
+  for iif in $(find "${DIAG_MNH}/" -maxdepth 1 -name "DIRCONV*"); do
+    test -e "${PREP_DIAG}/${iif}" && mv "${iif}" "${PREP_DIAG}/"
+  done
+  for iif in $(ls OUTPUT_LISTING*); do
+    test -e "${PREP_DIAG}/${iif}_${FNAME}" && mv "${iif}" "${PREP_DIAG}/${iif}_${FNAME}"
+  done
+  test -e "${PREP_DIAG}/LISTING_DIA_${FNAME}" && mv LISTING_DIA "${PREP_DIAG}/LISTING_DIA_${FNAME}"
+  test -e "${PREP_DIAG}/OUT_DIA_${FNAME}" && mv OUT_DIA "${PREP_DIAG}/OUT_DIA_${FNAME}"
+  test -e "${PREP_DIAG}/FICJD_${FNAME}" && mv FICJD "${PREP_DIAG}/FICJD_${FNAME}"
+# Either remove or store check_needed_variablesnon-diacronic outputs
+#  mv "${NAMEFILE}_dg.lfi" "${DIAG_MNH}/${FNAME}_dg.lfi"
+#  mv "${NAMEFILE}_dg.des" "${DIAG_MNH}/${FNAME}_dg.des"
+  rm "${NAMEFILE}_dg.lfi"
+  rm "${NAMEFILE}_dg.des"
+  #Removing remaining files and links
+  rm "$NAMEFILE.des" "$NAMEFILE.lfi" "${PGD_ARRAY_BASE[$TMPNEST]}.des" "${PGD_ARRAY_BASE[$TMPNEST]}.lfi" -f
+  rm pipe.name LISTING_DIA file_for_xtransfer -f
+  return 0
+}
+
+create_anim() {
+  check_needed_variables "LISTAGIF"
+  check_needed_variables "NAMEANIMFILE"
+
+  ARRAYLISTAGIF=($LISTAGIF)
+  LARRAYLISTAGIF=${#ARRAYLISTAGIF[@]}
+  LASTPOS=$(($LARRAYLISTAGIF - 1))
+  FIRSTFRAME="${ARRAYLISTAGIF[0]}"
+  LASTFRAME="${ARRAYLISTAGIF[$LASTPOS]}"
+  ANIMLIST="${FIRSTFRAME} ${FIRSTFRAME} ${LISTAGIF} ${LASTFRAME} ${LASTFRAME}"
+  convert -delay 40 -loop 0 $ANIMLIST "${NAMEANIMFILE}"
+  EXIT=$?
+  [ $EXIT -eq 0 ] || error "!!! ERROR converting ${NAMEANIMFILE} files to animated gif"
+  log "created ${NAMEANIMFILE}"
+  return 0
+}
+
+prep_list_pgd() {
+#Usage: prep_list_pgd
+#Function used to generate PGD files from topograpy files located in $TOPOGRAPHY
+
+check_needed_variables "YZS_FILE"
+check_needed_variables "YFILETYPE_VALUE"
+check_needed_variables "EXE_PREP_PGD"
+check_needed_variables "EXE_PREP_NEST_PGD"
+check_needed_variables "PGD_PREFIX"
+check_needed_variables "NLPGDFIRST"
+check_needed_variables "NLPGDNEST"
+check_needed_variables "NLPGDPREPNEST"
+check_needed_variables "PREP_PGDDIR"
+check_needed_variables "XLATCEN_VALUE"
+check_needed_variables "XLONCEN_VALUE"
+check_needed_variables "XRPK_VALUE"
+check_needed_variables "NIMAX_VALUE"
+check_needed_variables "NJMAX_VALUE"
+check_needed_variables "XDX_VALUE"
+check_needed_variables "XDY_VALUE"
+check_needed_variables "YCOVER_FILE"
+check_needed_variables "YCLAY_FILE"
+check_needed_variables "YSAND_FILE"
+check_needed_variables "IXOR_PREC"
+check_needed_variables "IYOR_PREC"
+check_needed_variables "IXSIZE_VALUE"
+check_needed_variables "IYSIZE_VALUE"
+check_needed_variables "IDXRATIO_VALUE"
+check_needed_variables "IDYRATIO_VALUE"
+check_needed_variables "EXE_CONV2DIA"
+check_needed_variables "EXE_DIAPROG"
+check_needed_variables "PGDEXTRACTPT"
+check_needed_variables "LOGFILEEXEPGD"
+check_needed_variables "LOGFILE"
+
+#Move to PGD directory
+cd "$PGDDIR"
+#Check if topography files exist and link them in current directory
+test -e "${TOPODIR}/${YCOVER_FILE}.dir" || error "!!! prep_list_pgd: COVER FILE ${YCOVER_FILE}.dir does not exists -  ABORTING"
+test -e "${TOPODIR}/${YCOVER_FILE}.hdr" || error "!!! prep_list_pgd: COVER FILE ${YCOVER_FILE}.hdr does not exists -  ABORTING"
+test -e "${TOPODIR}/${YCLAY_FILE}.dir" || error "!!! prep_list_pgd: CLAY FILE ${YCLAY_FILE}.dir does not exists -  ABORTING"
+test -e "${TOPODIR}/${YCLAY_FILE}.hdr" || error "!!! prep_list_pgd: CLAY FILE ${YCLAY_FILE}.hdr does not exists -  ABORTING"
+test -e "${TOPODIR}/${YSAND_FILE}.dir" || error "!!! prep_list_pgd: SAND FILE ${YSAND_FILE}.dir does not exists -  ABORTING"
+test -e "${TOPODIR}/${YSAND_FILE}.hdr" || error "!!! prep_list_pgd: SAND FILE ${YSAND_FILE}.hdr does not exists -  ABORTING"
+check_link "${TOPODIR}/${YCOVER_FILE}.dir" "${YCOVER_FILE}.dir"
+check_link "${TOPODIR}/${YCOVER_FILE}.hdr" "${YCOVER_FILE}.hdr"
+check_link "${TOPODIR}/${YCLAY_FILE}.dir" "${YCLAY_FILE}.dir"
+check_link "${TOPODIR}/${YCLAY_FILE}.hdr" "${YCLAY_FILE}.hdr"
+check_link "${TOPODIR}/${YSAND_FILE}.dir" "${YSAND_FILE}.dir"
+check_link "${TOPODIR}/${YSAND_FILE}.hdr" "${YSAND_FILE}.hdr"
+#For the altitude file we check if the kind of file is DIRECT (should have .dir and .hdr) or LATLON (a single file, like site_ord4)
+if [ "${YFILETYPE_VALUE[0]}" == "DIRECT" ]; then
+  test -e "${TOPODIR}/${YZS_FILE[0]}.dir" || error "!!! prep_list_pgd: YZS FILE (altitudes) ${YZS_FILE[0]}.dir does not exists -  ABORTING"
+  test -e "${TOPODIR}/${YZS_FILE[0]}.hdr" || error "!!! prep_list_pgd: YZS FILE (altitudes) ${YZS_FILE[0]}.hdr does not exists -  ABORTING"
+  check_link "${TOPODIR}/${YZS_FILE[0]}.dir" "${YZS_FILE[0]}.dir"
+  check_link "${TOPODIR}/${YZS_FILE[0]}.hdr" "${YZS_FILE[0]}.hdr"
+else
+  if [ "${YFILETYPE_VALUE[$IDX]}" = "LATLON" ]; then
+    test -e "${TOPODIR}/${YZS_FILE[0]}" || error "!!! prep_list_pgd: YZS FILE (altitudes) ${YZS_FILE[0]} does not exists -  ABORTING"
+    check_link "${TOPODIR}/${YZS_FILE[0]}" "${YZS_FILE[0]}"
+  else
+    error "!!! prep_list_pgd: error in variable YFILETYPE_VALUE. Actual value is <${YFILETYPE_VALUE[$IDX]}>, accepted are <LATLON> and <DIRECT> - ABORTING"
+  fi
+fi
+#We start preparing the pgd for the outer layer, selecting the first topograpy file from the array defined in pgd.var
+ZSFILE="${YZS_FILE[0]}"
+#SCALE is a simply a reminder in the namefile of the size in Km of the grid
+SCALE=$(echo "scale=1;(${XDX_VALUE}/1000)"|bc -l)
+#Formatting the filename
+#NAMEARRAY[0]="${PGD_PREFIX}_PGD_${SCALE}_1of${NESTING}"
+#Let us use a shorter filename
+NAMEARRAY[0]="1.${PGD_PREFIX}_PGD_nD${NESTING}"
+#long namelist name
+NAMELIST="${PREP_PGDDIR}/PRE_PGD1.nam_${NAMEARRAY[0]}"
+#preparing the namelist from themplate $NLPGDFIRST
+grep -vE '(^[[:space:]]*($|(#|!|;|//)))' "$NLPGDFIRST" > "$NAMELIST"
+sed -e "s/CPGDFILE_VALUE/${NAMEARRAY[0]}/;s/XLATCEN_VALUE/${XLATCEN_VALUE}/;s/XLONCEN_VALUE/${XLONCEN_VALUE}/" -i "$NAMELIST"
+sed -e "s/XRPK_VALUE/${XRPK_VALUE}/" -i "$NAMELIST"
+sed -e "s/NIMAX_VALUE/${NIMAX_VALUE}/;s/NJMAX_VALUE/${NJMAX_VALUE}/;s/XDX_VALUE/${XDX_VALUE}/;s/XDY_VALUE/${XDX_VALUE}/" -i "$NAMELIST"
+sed -e "s/YCOVER_FILE/${YCOVER_FILE}/;s/YZS_FILE/${ZSFILE}/;s/YCLAY_FILE/${YCLAY_FILE}/;s/YSAND_FILE/${YSAND_FILE}/" -i "$NAMELIST"
+sed -e "s/YFILETYPE_VALUE/${YFILETYPE_VALUE[0]}/" -i "$NAMELIST"
+#copying the namelist in the current directory and starting the executable
+cp "$NAMELIST" PRE_PGD1.nam
+if [ $LOGEXE -eq 0 ]; then
+  mpirun -np 1 "$EXE_PREP_PGD"
+  EXIT=$?
+elif [ $LOGEXE -eq 1 ]; then
+  mpirun -np 1 "$EXE_PREP_PGD" >> "$LOGFILEEXEPGD"
+  EXIT=$?
+  echo "*******************************************************" >> "$LOGFILEEXEPGD"
+  echo "*******************************************************" >> "$LOGFILEEXEPGD"
+else
+  mpirun -np 1 "$EXE_PREP_PGD" >> "$LOGFILE"
+  EXIT=$?
+fi
+EXIT=$?
+[ $EXIT -eq 0 ] || error "!!! prep_list_pgd: error preparing pgd ${NAMEARRAY[0]} - ABORTING"
+rm PRE_PGD1.nam
+mv OUTPUT_LISTING0 "${PREP_PGDDIR}/OUTPUT_LISTING0_${NAMEARRAY[0]}"
+# if there are nested level start preparing the namelist for the nesting phase, inputting the pgd already prepared
+if [ $NESTING -ge 2 ]; then
+  NAMELISTNEST="${PREP_PGDDIR}/PRE_NEST_PGD1.nam_${NESTING}"
+  echo "&NAM_PGD1 YPGD1 = '${NAMEARRAY[0]}' /" > "$NAMELISTNEST"
+fi
+#Start the preparation of pgds for inner layers (nested)
+NUMITER=2
+while [ $NUMITER -le $NESTING ]; do
+  IDX=$(($NUMITER-1))
+  IDX_PREC=$(($IDX-1))
+  #Check and preprare links controlling the filetype used
+  if [ "${YFILETYPE_VALUE[$IDX]}" == "DIRECT" ]; then
+    test -e "${TOPODIR}/${YZS_FILE[$IDX]}.dir" || error "!!! prep_list_pgd: YZS FILE (altitudes) ${YZS_FILE[$IDX]}.dir does not exists -  ABORTING"
+    test -e "${TOPODIR}/${YZS_FILE[$IDX]}.hdr" || error "!!! prep_list_pgd: YZS FILE (altitudes) ${YZS_FILE[$IDX]}.hdr does not exists -  ABORTING"
+    check_link "${TOPODIR}/${YZS_FILE[$IDX]}.dir" "${YZS_FILE[$IDX]}.dir"
+    check_link "${TOPODIR}/${YZS_FILE[$IDX]}.hdr" "${YZS_FILE[$IDX]}.hdr"
+  else
+    if [ "${YFILETYPE_VALUE[$IDX]}" = "LATLON" ]; then
+      test -e "${TOPODIR}/${YZS_FILE[$IDX]}" || error "!!! prep_list_pgd: YZS FILE (altitudes) ${YZS_FILE[$IDX]} does not exists -  ABORTING"
+      check_link "${TOPODIR}/${YZS_FILE[$IDX]}" "${YZS_FILE[$IDX]}"
+    else
+      error "!!! prep_list_pgd: error in variable YFILETYPE_VALUE. Actual value is <${YFILETYPE_VALUE[$IDX]}>, accepted are <LATLON> and <DIRECT> - ABORTING"
+    fi
+  fi
+  #Selecting the appropriate altitude file
+  ZSFILE="${YZS_FILE[$IDX]}"
+  #The scale parameter as before
+  SCALE=$(echo "scale=1;(${SCALE}/${IDXRATIO_VALUE[$IDX_PREC]})"|bc -l)
+  #Filename
+#  NAMEARRAY[$IDX]="${PGD_PREFIX}_PGD_${SCALE}_${NUMITER}of${NESTING}"
+  #Let us use a shorter filename
+  NAMEARRAY[$IDX]="${NUMITER}.${PGD_PREFIX}_PGD_nD${NESTING}"
+  #long name of namelist
+  NAMELIST="${PREP_PGDDIR}/PRE_PGD1.nam_${NAMEARRAY[$IDX]}"
+  #preparing the namelist from template $NLPGDNEST
+  grep -vE '(^[[:space:]]*($|(#|!|;|//)))' "$NLPGDNEST" > "$NAMELIST"
+  sed -e "s/CPGDFILE_VALUE/${NAMEARRAY[$IDX]}/;s/YINIFILE_VALUE/${NAMEARRAY[$IDX_PREC]}/" -i "$NAMELIST"
+  sed -e "s/IXOR_PREC/${IXOR_PREC[$IDX_PREC]}/;s/IYOR_PREC/${IYOR_PREC[$IDX_PREC]}/" -i "$NAMELIST"
+  sed -e "s/IXSIZE_VALUE/${IXSIZE_VALUE[$IDX_PREC]}/;s/IYSIZE_VALUE/${IYSIZE_VALUE[$IDX_PREC]}/" -i "$NAMELIST"
+  sed -e "s/IDXRATIO_VALUE/${IDXRATIO_VALUE[$IDX_PREC]}/;s/IDYRATIO_VALUE/${IDYRATIO_VALUE[$IDX_PREC]}/" -i "$NAMELIST"
+  sed -e "s/YCOVER_FILE/${YCOVER_FILE}/;s/YZS_FILE/${ZSFILE}/;s/YCLAY_FILE/${YCLAY_FILE}/;s/YSAND_FILE/${YSAND_FILE}/" -i "$NAMELIST"
+  sed -e "s/YFILETYPE_VALUE/${YFILETYPE_VALUE[$IDX]}/" -i "$NAMELIST"
+  #copying the namelist in current directory and starting the executable
+  cp "$NAMELIST" PRE_PGD1.nam
+  if [ $LOGEXE -eq 0 ]; then
+    mpirun -np 1 "$EXE_PREP_PGD"
+    EXIT=$?
+  elif [ $LOGEXE -eq 1 ]; then
+    mpirun -np 1 "$EXE_PREP_PGD" >> "$LOGFILEEXEPGD"
+    EXIT=$?
+    echo "*******************************************************" >> "$LOGFILEEXEPGD"
+    echo "*******************************************************" >> "$LOGFILEEXEPGD"
+  else
+    mpirun -np 1 "$EXE_PREP_PGD" >> "$LOGFILE"
+    EXIT=$?
+  fi
+  EXIT=$?
+  [ $EXIT -eq 0 ] || error "!!! prep_list_pgd: error preparing pgd ${NAMEARRAY[$IDX]} - ABORTING"
+  rm PRE_PGD1.nam
+  mv OUTPUT_LISTING0 "${PREP_PGDDIR}/OUTPUT_LISTING0_${NAMEARRAY[$IDX]}"
+  #If there are nesting levels (obvious here, so no if needed) we input the pgd just prepared into the namelist for the nesting phase
+  echo "&NAM_PGD${NUMITER} YPGD${NUMITER} = '${NAMEARRAY[$IDX]}', IDAD=${IDX} /" >> "$NAMELISTNEST"
+
+  NUMITER=$((NUMITER+1))
+done
+
+#Preparing the nested PGD files from the separate pgd files prepared in the phase above
+if [ $NESTING -ge 2 ]; then
+  #All exemples fill the $NAMELISTNEST up to 8 entries (even if empty), so I'm doing the same here
+  while [ $NUMITER -le 8 ]; do
+    echo "&NAM_PGD${NUMITER}  /" >> "$NAMELISTNEST"
+    NUMITER=$(($NUMITER+1))
+  done
+  #Final line for $NAMELISTNEST
+  grep -vE '(^[[:space:]]*($|(#|!|;|//)))' "$NLPGDPREPNEST" >> "$NAMELISTNEST"
+  #Copying in current directory and starting the executable
+  cp "$NAMELISTNEST" PRE_NEST_PGD1.nam
+  if [ $LOGEXE -eq 0 ]; then
+    mpirun -np 1 "$EXE_PREP_NEST_PGD"
+    EXIT=$?
+  elif [ $LOGEXE -eq 1 ]; then
+    mpirun -np 1 "$EXE_PREP_NEST_PGD" >> "$LOGFILEEXEPGD"
+    EXIT=$?
+    echo "*******************************************************" >> "$LOGFILEEXEPGD"
+    echo "*******************************************************" >> "$LOGFILEEXEPGD"
+  else
+    mpirun -np 1 "$EXE_PREP_NEST_PGD" >> "$LOGFILE"
+    EXIT=$?
+  fi
+  [ $EXIT -eq 0 ] || error "!!! prep_list_pgd: error preparing nesting from $NAMELISTNEST - ABORTING"
+  rm PRE_NEST_PGD1.nam
+#  #Renaming nested PGD files in order to start with a number representing the hierarchy.
+#  #Other scripts rely on this naming in order to automatically find PGD files for simulation.
+#  for i in $(find "${PGDDIR}" -name "*nestXX.*"); do
+#    FILENAME=$(basename "$i")
+#    POSITION=$(echo "$i"|awk -F"_" '{print $(NF)}'|cut -c1)
+#    mv "$i" "${PGDDIR}/${POSITION}.${FILENAME}"
+#  done
+  mv OUTPUT_LISTING0 "${PREP_PGDDIR}/OUTPUT_LISTING0_$(basename $NAMELISTNEST)"
+else
+  FILENAME=$(basename "${NAMEARRAY[0]}")
+#  POSITION=$(echo "${NAMEARRAY[0]}"|awk -F"_" '{print $(NF)}'|cut -c1)
+#  mv "${NAMEARRAY[0]}.lfi" "${PGDDIR}/${POSITION}.${FILENAME}.lfi"
+#  mv "${NAMEARRAY[0]}.des" "${PGDDIR}/${POSITION}.${FILENAME}.des"
+  mv "${NAMEARRAY[0]}.lfi" "${PGDDIR}/${FILENAME}.lfi"
+  mv "${NAMEARRAY[0]}.des" "${PGDDIR}/${FILENAME}.des"
+fi
+
+#If we want to perform data extraction on latitude, longitude and altitude here are the lines
+if [ $PGDEXTRACTPT -eq 1 ]; then
+  LATLON_FILELIST=""
+  ZS_FILELIST=""
+  #Search for all nested pgds prepared before
+#  for i in $(find "$PGDDIR" -name "[[:digit:]].*.lfi"|sort); do
+  for iif in $(find "$PGDDIR" -name "[[:digit:]].*.lfi"|grep "nestXX" |sort); do
+#Remove filename extension
+    FILENAME=$(basename ${iif}| sed 's/\(.*\)\..*/\1/')
+    NAMELIST="${PREP_PGDDIR}/DIRCONV_${FILENAME}.nam"
+    log " - Preparing data extraction (latitude, longitude and altitutde) from $FILENAME"
+    #Preparing the namelist for conv2dia
+    grep -vE '(^[[:space:]]*($|(#|!|;|//)))' "$NLDIRCONV" |sed -e "s/DIRCONV_IN_FILE/${FILENAME}/;s/DIRCONV_OUT_FILE/d.${FILENAME}/" > "$NAMELIST"
+    if [ $LOGEXE -eq 0 ]; then
+      "$EXE_CONV2DIA" < "$NAMELIST"
+      EXIT=$?
+    elif [ $LOGEXE -eq 1 ]; then
+     "$EXE_CONV2DIA" < "$NAMELIST" >> "$LOGFILEEXEPGD"
+      EXIT=$?
+      echo "*******************************************************" >> "$LOGFILEEXEPGD"
+      echo "*******************************************************" >> "$LOGFILEEXEPGD"
+    else
+     "$EXE_CONV2DIA" < "$NAMELIST" >> "$LOGFILE"
+      EXIT=$?
+    fi
+    [ $EXIT -eq 0 ] || error "!!! prep_list_pgd: error using conv2dia on $FILENAME - ABORTING"
+    log " - data extraction on $FILENAME ended"
+    #Preparing extraction with diaprog
+    POSITION=$(echo "$FILENAME"|cut -c 1)
+    #Extract latitude and longitude
+    $EXE_DIAPROG &>/dev/null <<EOF
+_file_'d.${FILENAME}'
+LPRINT=T
+CONVALLIJ2LL
+quit
+EOF
+    EXIT=$?
+    [ $EXIT -eq 0 ] || error "!!! prep_list_pgd: error using diaprog on $FILENAME - ABORTING"
+    #Rename the output file
+    mv FICVAL "FICVAL_${PGD_PREFIX}_${POSITION}_latlon"
+    LATLON_FILELIST="$LATLON_FILELIST FICVAL_${PGD_PREFIX}_${POSITION}_latlon"
+    #Filter away * and , in order to read it from fortran program
+    sed -e 's/*/ /g' -i "FICVAL_${PGD_PREFIX}_${POSITION}_latlon"
+    sed -e 's/\,/ /g' -i "FICVAL_${PGD_PREFIX}_${POSITION}_latlon"
+    #Extract altitude in a separate file
+    $EXE_DIAPROG &>/dev/null <<EOF
+_file_'d.${FILENAME}'
+LPRINT=T
+ZS
+quit
+EOF
+    EXIT=$?
+    [ $EXIT -eq 0 ] || error "!!! prep_list_pgd: error using diaprog on $FILENAME - ABORTING"
+    #Rename the output file
+    mv FICVAL "FICVAL_${PGD_PREFIX}_${POSITION}_ZS"
+    ZS_FILELIST="$ZS_FILELIST FICVAL_${PGD_PREFIX}_${POSITION}_ZS"
+
+    log "********"
+    log " - Performing analysis on PGD file $POSITION:"
+    #create a readable output file combining informations from both ZS and latlon file
+    #This step also performs some analysis and outputs some interesting information on the generated pgd files
+    test -e "FICVAL_${PGD_PREFIX}_${POSITION}_ZSlatlon" && rm "FICVAL_${PGD_PREFIX}_${POSITION}_ZSlatlon"
+    read_latlonZS "FICVAL_${PGD_PREFIX}_${POSITION}_latlon" "FICVAL_${PGD_PREFIX}_${POSITION}_ZS" "FICVAL_${PGD_PREFIX}_${POSITION}_ZSlatlon" "$XLATCEN_VALUE" "$XLONCEN_VALUE" > "PGD_${PGD_PREFIX}_${POSITION}_analysis_data.txt"
+    EXIT=$?
+    [ $EXIT -eq 0 ] || error "!!! prep_list_pgd: error using read_latlonZS at position $POSITION - ABORTING"
+    log " - Analysis on PGD files performed:"
+    cat "PGD_${PGD_PREFIX}_${POSITION}_analysis_data.txt" >> "$LOGFILE"
+    log "********"
+    cat "PGD_${PGD_PREFIX}_${POSITION}_analysis_data.txt"
+  done
+
+fi
+
+rm file_for_xtransfer pipe_name OUTPUT_LISTING* -f
+rm FICJD dir* gmeta LISTING_DIA OUT_DIA -f
+
+cd "${WORKDIR}"
+}
+
+addheaders() {
+#usage: addheaders <header2> <datfile>
+#<header1> is the first line of header text
+#<header2> is the second line of header text
+#<datfile> is the dat file to be edited
+#Add headers to dat files which are outputted from MNH EXE phase
+  HEADERADD1="$1"
+  HEADERADD2="$2"
+  DATFILE="$3"
+  if [ -e "${DATFILE}" ]; then
+    check_needed_variables "WORKDIR"
+    echo "#####START HEADER#####" > "${WORKDIR}"/tmpdat
+    EXIT=$?
+    [ $EXIT -eq 0 ] || error "Error writing header to ${WORKDIR}/tmpdat"
+    echo "# ${HEADERADD1} #" >> "${WORKDIR}"/tmpdat
+    EXIT=$?
+    [ $EXIT -eq 0 ] || error "Error writing header to ${WORKDIR}/tmpdat"
+    echo "# ${HEADERADD2} #" >> "${WORKDIR}"/tmpdat
+    EXIT=$?
+    [ $EXIT -eq 0 ] || error "Error writing header to ${WORKDIR}/tmpdat"
+    echo "######END HEADER######" >> "${WORKDIR}"/tmpdat
+    EXIT=$?
+    [ $EXIT -eq 0 ] || error "Error writing header to ${WORKDIR}/tmpdat"
+    cat "${DATFILE}" >> "${WORKDIR}"/tmpdat
+    EXIT=$?
+    [ $EXIT -eq 0 ] || error "Error writing ${DATFILE} to ${WORKDIR}/tmpdat"
+    rm "${DATFILE}" -f
+    mv "${WORKDIR}"/tmpdat "${DATFILE}"
+    EXIT=$?
+    [ $EXIT -eq 0 ] || error "Error moving ${WORKDIR}/tmpdat to ${DATFILE}"
+  fi
+  return 0
+}
+
+# UNUSED FUNCTIONS
+# The following functions are right now unused in the code, however they are left here for future generations in order to potentially expand the script
+
+#Guess what it does?
+howmany() { echo $#; }

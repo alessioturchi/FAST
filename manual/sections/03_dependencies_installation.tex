@@ -1,0 +1,139 @@
+\section{DEPENDENCIES AND INSTALLATION}
+\label{sec:deps-install}
+
+\subsection{Assumed pre-requisites}
+This section assumes that \textbf{Meso-NH} and a matching local \textbf{OpenMPI} build are already
+installed and working. The codebase currently in use expects Meso-NH \textbf{V5.2.1} built against
+\textbf{eccodes 2.30.0}, set in \texttt{globals.var} as:
+\begin{lstlisting}
+MNH_BASE_PATH="${HOME}/MNH-V5-2-1_eccodes_2_30_0"
+\end{lstlisting}
+and OpenMPI \textbf{4.1.1}. A custom Meso-NH \texttt{VER\_USER} build is required; which build is active
+is selected by \texttt{MESONH\_PERSO\_VERSION} in \texttt{globals.var} (Section~\ref{sec:config}). On
+this deployment it switches seasonally (winter/summer) between two builds, because the optical-
+turbulence calibration built into the model is itself seasonal and the switch is driven by the current
+date; a fixed, non-seasonal build can also be used (see the note in Section~\ref{sec:config}).
+
+\textbf{A note on Meso-NH output format.} This codebase reads and writes Meso-NH's legacy \texttt{.lfi}
+binary output format throughout (PREP\_REAL, EXE and DIAG outputs, the optional \texttt{bzip2}
+compression step, the \texttt{conv2dia}/\texttt{diaprog} post-processing). It has \textbf{not} been
+adapted to the \texttt{.nc4}/NetCDF-4 output format used by more recent Meso-NH versions; deploying it
+against a Meso-NH build that only produces \texttt{.nc4} output will require changes to the
+post-processing chain that are outside the scope of this manual.
+
+\subsection{System-level dependencies}
+\begin{table}[H]
+\centering
+\begin{tabular}{|l|l|}
+\hline
+\textbf{PROGRAM} & \textbf{NOTES} \\ \hline
+Meso-NH & V5.2.1, custom VER\_USER build (see above) \\
+OpenMPI & 4.1.1 \\
+eccodes (incl.\ \texttt{grib\_copy}) & 2.30.0, used to merge orography into forecast grib files \\
+gfortran + \texttt{make} & used to build the helper programs in \texttt{bin/conf.d/utils} \\
+bash & \(\geq\)4.x \\
+Python 3 & used both directly and inside a dedicated virtualenv (below) \\
+GNU \texttt{parallel} & parallel \texttt{bzip2} compression of Meso-NH output \\
+ImageMagick (\texttt{convert}) & format conversion in the plotting phase \\
+\texttt{bc} & floating point arithmetic in the bash scripts \\
+OpenSSH client (\texttt{ssh}\slash\texttt{scp}) & retrieval from the backup init server, uploads \\
+\texttt{rsync} & delivery of figures/ASCII outputs and hand-off to the AR hosts \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Python environment}
+The automation code expects a Python virtualenv at a fixed path referenced by \texttt{LOCPYTHONDIR} in
+\texttt{globals.var}; \texttt{run.sh} activates it at the start of every run and deactivates it at the
+end. If a short-timescale component is also installed on the same host, it can share this same
+virtualenv.
+
+The packages required by the automation scripts themselves (plotting, ephemerides, mail) are:
+\begin{lstlisting}
+numpy
+scipy
+matplotlib
+pytz
+python-dateutil
+ephem
+google-api-python-client
+google-auth
+\end{lstlisting}
+If the same virtualenv is also used to run a short-timescale/AR component, check that component's own
+environment manual for any additional version constraints; they are not needed by the automation code
+on its own.
+
+To create the environment from scratch:
+\begin{lstlisting}
+cd $HOME
+python3 -m venv <venv_name>
+source $HOME/<venv_name>/bin/activate
+pip install --upgrade pip
+pip install numpy scipy matplotlib pytz python-dateutil ephem \
+            google-api-python-client google-auth
+deactivate
+\end{lstlisting}
+(replace \texttt{<venv\_name>} with whatever \texttt{LOCPYTHONDIR} in \texttt{globals.var} points at).
+
+\subsection{Mail delivery (Gmail API)}
+Alert and completion e-mails are sent through the Gmail API rather than through a local MTA, via
+\texttt{sendmail\_gmail.py} under \texttt{bin/conf.d/utils/} -- this is the script actually wired into
+every alert path, through \texttt{common\_functions.func}. It expects an OAuth client secret and a
+cached token in the Python virtualenv directory:
+\begin{lstlisting}
+<venv_name>/credentials.json   : OAuth 2.0 client secret (download from the Google Cloud
+                                  project used for this mail account)
+<venv_name>/token.pickle       : cached, auto-refreshed OAuth token; generated on first
+                                  successful authentication
+\end{lstlisting}
+A same-named \texttt{sendmail\_attach.py} also exists under \texttt{bin/conf.d/utils}, using a plain
+\texttt{smtplib}\slash SMTP implementation instead, but it is not currently invoked anywhere in this
+codebase; it can be ignored for installation purposes.
+Setting up \texttt{credentials.json} and performing the first interactive authorization (to create
+\texttt{token.pickle}) must be done once, outside of the automated procedure, before the first scheduled
+run; afterwards the token is refreshed automatically. Without valid credentials the scripts abort rather
+than silently failing to notify.
+
+\subsection{Installation steps}
+\begin{enumerate}
+  \item \textbf{Unpack the code.} Extract the automation directory to its intended location (it can
+        live anywhere, but conventionally directly under the automation user's home directory).
+  \item \textbf{Point the configuration at its working directory.} In
+        \texttt{bin/conf.d/globals.var}, set \texttt{WORKDIR} to the absolute path of that directory.
+  \item \textbf{Build the fortran helper programs.} These are not portable binaries and must be
+        recompiled on the target machine:
+        \begin{lstlisting}
+        cd bin/conf.d/utils
+        ./Make_All.sh
+        \end{lstlisting}
+        This builds every helper under a \texttt{source\_*} sub-directory (post-processing and
+        correction tools used by \texttt{postproc.sh}\slash\texttt{plot\_python.sh}); the script aborts
+        on the first compilation failure, so a clean run confirms the whole helper suite is usable.
+  \item \textbf{Set up the Python virtualenv and the Gmail API credentials} as described above.
+  \item \textbf{Set up passwordless SSH (key-based)} from the automation account to three groups of
+        remote hosts. First, the backup initialization server
+        (\texttt{BKSERVER\_USER}\slash\texttt{BKSERVER\_IP} in \texttt{globals.var}). Second, the
+        primary and backup output servers (\texttt{REMOTE\_USER}\slash\texttt{REMOTE\_HOST} and
+        \texttt{REMOTE\_USER\_BK}\slash\texttt{REMOTE\_HOST\_BK}, both in \texttt{backup.var}). Third,
+        if a short-timescale component is deployed, its hand-off host(s)
+        (\texttt{REMOTE\_AR}\slash\texttt{REMOTE\_AR\_BK}, also in \texttt{backup.var}).
+  \item \textbf{Generate the PGD (orography) files.} Once the topography source files are in place
+        (\texttt{TOPODIR} in \texttt{globals.var}) and \texttt{pgd.var} is configured for the site
+        (Section~\ref{sec:config}):
+        \begin{lstlisting}
+        cd bin
+        ./pgdgen.sh
+        \end{lstlisting}
+        A successful run populates \texttt{PGD/}. This step only needs to be repeated if the domain
+        geometry, nesting configuration or ground/topography input files change; it is otherwise a
+        one-time step per site.
+  \item \textbf{Do a manual test run} before relying on cron:
+        \begin{lstlisting}
+        cd bin
+        ./run.sh
+        \end{lstlisting}
+        Inspect \texttt{LOG/} for errors; the most common causes of failure at this stage are a
+        missing/incorrect \texttt{WORKDIR}, missing PGD files, an un-built helper program, or missing
+        SSH/API credentials.
+  \item \textbf{Install the cron entry} shown in Section~\ref{sec:usage} for nightly operation.
+\end{enumerate}

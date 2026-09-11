@@ -1,0 +1,260 @@
+#!/bin/bash
+# Global variables that need expansion (in the form new_var=$previous_var+something)
+
+####################################################################################
+# DEBUG PARAMETERS
+####################################################################################
+#TEST RUN? Set to 1 if you don't want to wait for ECMWF forecast files but you want
+#to manually specify the init files in filedef.var
+TESTRUN=0
+#prep_list.sh?
+PREPLISTTRUE=1
+#Wait 1m more for files to be sure files arrived
+WAITSURE=0
+#Leave it set to 0 please
+PARSEBACKUP=0
+#Used to run backup.sh at a later time with respect to run.sh
+BACKUPLATER=0
+#If you debug it is required to read the code, not the comments. If you cannot read the code, plese don't debug
+NOPREP=0
+NORUN=0
+NODIAG=0
+NOFICVAL=0
+NOPLOT=0
+
+####################################################################################
+# MNH VERSION
+####################################################################################
+SHORTVERSION="M521"
+MNH_BASE_PATH="${HOME}/MNH-V5-2-1_eccodes_2_30_0/"
+source ${MNH_BASE_PATH}/conf/profile_mesonh
+#MESONH_PERSO_VERSION="M52b1_OT_2POINT_RH_v2_mod_2dom_diag_MTG_calib1_sum_TVL_RGG"
+REALMONTH=$(date +%m)
+if [ $REALMONTH -le 3 ] || [ $REALMONTH -ge 10 ]; then
+  MESONH_PERSO_VERSION="M52b1_OT_2POINT_RH_v2_mod_2dom_diag_MTG_calib2_win_TVL_RGG"
+else
+  MESONH_PERSO_VERSION="M52b1_OT_2POINT_RH_v2_mod_2dom_diag_MTG_calib2_sum_TVL_RGG"
+fi
+
+#Version 5-2-1_eccodes
+MNH_MAIN_PATH="${MNH_BASE_PATH}/src/dir_obj-LXgfortranI4-MNH-V5-2-1-MPIAUTO-O2/${MESONH_PERSO_VERSION}"
+MNH_GRIBAPI_PATH="${HOME}/bin/eccodes/bin/"
+MNH_TOOL_PATH="${MNH_BASE_PATH}/bin_tools/X86_64"
+MNH_PROFILE="${MNH_BASE_PATH}/conf/profile_mesonh"
+
+#MPI version
+MPI_VERSION="${HOME}/OPEN-MPI-4-1-1"
+
+#LD_LIBRARY_PATH for eccodes_2.30.0
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:${HOME}/MNH-V5-2-1_eccodes_2_30_0/src/LIB/build_ECCODES_2.30.0/lib/"
+
+#Source config from MNH and set MPI version
+source "${MNH_PROFILE}" &>/dev/null
+MPI_ROOT="${MPI_VERSION}"
+PATH="${MPI_ROOT}/bin:${PATH}"
+MANPATH="${MPI_ROOT}/share/man:${MANPATH}"
+LD_LIBRARY_PATH="$LD_LIBRARY_PATH:${MPI_ROOT}/lib"
+PATH="$PATH:$NCARG_ROOT/bin"
+
+MESONH_VERSION_FULL="${XYZ}"
+MESONH_VERSION=$(echo "${XYZ}"|cut -d"-" -f3-|cut -d"-" -f-4)
+####################################################################################
+# BASE CONFIGURATION AND MAIN PATHS
+####################################################################################
+#Site name (3 letters only)
+SITE_NAME="SIT"
+# Nesting level - This variable indicates the number of nested models (outer layer=1, first nesting=2, second nesting=3,etc...)
+NESTING=3
+
+# Base work directory
+WORKDIR="${HOME}/AUTOMATION_3dom"
+
+# Config directory housing all global config data
+CONFDIR="${WORKDIR}/bin/conf.d"
+# Directory containing run scripts
+EXEDIR="${WORKDIR}/bin"
+#Directory containing utilities
+UTILDIR="${CONFDIR}/utils"
+#Local installation of python with virtualenv
+LOCPYTHONDIR="${HOME}/automation_python3/bin"
+#Python executable
+PYTHONEXE="python3"
+#Directory containing python plotting routines
+PYTHONPLOT="${UTILDIR}/Plot_python"
+# Functions
+FUNCFILE="${UTILDIR}/common_functions.func"
+# Input files definitio (it is a script)
+FILEDEF_VAR="${CONFDIR}/filedef.var"
+# TIME parameters
+TIME_VAR="${CONFDIR}/times.var"
+# TIME parameters used in sequential run (this is just a copy of the previous file with modified dates)
+TIME_VAR_SEQ="${CONFDIR}/times.var_sequential"
+# Run parameters
+RUN_VAR="${CONFDIR}/run.var"
+# Pgd generation parameters
+PGD_VAR="${CONFDIR}/pgd.var"
+# Upload parameters
+BACKUP_VAR="${CONFDIR}/backup.var"
+#CORRECTION_FILES location
+CORRECTION_DIR="${CONFDIR}/corrections"
+
+####################################################################################
+# LOGGING
+####################################################################################
+#Do we want to spam the main logfile with MESO-NH verbose output? Set LOGEXE=2
+#Do we prefer to sent the verbose MESHO-NH output to a separate logfile? Set LOGEXE=1
+#Do we want to ignore MESO-NH output and simply print it on the console? Set LOGEXE=0
+LOGEXE=1
+
+# Mail address to be alerted in case of errors
+MAIL_ADDRESS="XXXXX@YYY.com"
+FROM_ADDRESS="YYYYY@ZZZ.com"
+
+#Prefix to be added to all mails
+MAIL_PREFIX="AUTOMATION - ${NESTING}DOM"
+
+# Log directory, main log file and error file
+DATESTART=$(date +%F-h%H)
+LOGDIR="${WORKDIR}/LOG"
+#main logfile
+LOGFILE="${LOGDIR}/main_${DATESTART}.log"
+#error file
+ERRFILE="${LOGDIR}/error_${DATESTART}.log"
+#pgdgen main log file
+LOGPGDFILE="${LOGDIR}/pgd_${DATESTART}.log"
+#prep_list mail log file
+LOGPREPFILE="${LOGDIR}/preplist_${DATESTART}.log"
+#Separate logfile for MESO-NH output logging (set this variable even if unused)
+LOGFILEEXEPGD="${LOGDIR}/exe_PGD_${DATESTART}.log"
+LOGFILEEXEREAL="${LOGDIR}/exe_REAL_${DATESTART}.log"
+LOGFILEEXERUN="${LOGDIR}/exe_RUN_${DATESTART}.log"
+LOGFILEEXEDIAG="${LOGDIR}/exe_DIAG_${DATESTART}.log"
+LOGFILEEXEFICVAL="${LOGDIR}/exe_FICVAL_${DATESTART}.log"
+#Cumulative logfile for storing execution times
+LOG_TIME_CUMULATIVE="${HOME}/LOGTIME_${SITE_NAME}_${SHORTVERSION}_${NESTING}DOM.log"
+#finish log to be sent by email
+DATE_LASTLOG="${LOGDIR}/date_last_sim.log"
+
+#If a hard error occur write out this file
+#!!WARNING!! if you change this please also look at ${HOME}/programs/run_all_sims.sh for the concatenated run of 3DOM + 4DOM
+ERROR_OUTPUT_FILE="${HOME}/ERROR_SIM_${NESTING}DOM.out"
+
+####################################################################################
+# INIT PATHS
+####################################################################################
+# Directory where uploaded ECMWF grib files appear
+INIRAWDIR="/sftpusers/ecmwf_data/data"
+# Directory where combined files are saved (or analysis files are searched from, if TESTRUN=1)
+INIDIR="${HOME}/INIT_combined"
+
+#Backup server configuration
+#Username
+BKSERVER_USER="ecmwf_data"
+#IP
+BKSERVER_IP="XXX.XXX.XXX.XXX"
+BKSERVER_INIPATH="data"
+BKSERVER_LOCALPATH="${HOME}/INIT_BACKUP"
+####################################################################################
+# OUTPUT PATHS
+####################################################################################
+# Default initial files destination - USE A LOCAL FOLDER!
+OUTDIR_REAL="${WORKDIR}/REAL"
+# Here goes all the namelists prepared for the REAL phases
+OUTDIR_PREP="${OUTDIR_REAL}"
+#Storage of outputs of MNH
+OUTPUT_MNH="${WORKDIR}/RUN"
+#Storage of namelists for MNH run
+PREP_MNH="${OUTPUT_MNH}"
+#Storage of outputs of DIAG  and conv2dia steps
+DIAG_MNH="${WORKDIR}/DIAG"
+#Storage of namelists for DIAG run
+PREP_DIAG="${DIAG_MNH}"
+#Storage of ASCII output
+ASCII_DIR="${WORKDIR}/ASCII"
+#Storage of DAT outputs
+DAT_DIR="${ASCII_DIR}/DAT"
+#Storage of AUTOREGRESSION outputs
+AUTOREGRESSION_DIR="${ASCII_DIR}/AUTOREGRESSION"
+#Storage of PLOT_DAT outputs
+PLOTDAT_DIR="${ASCII_DIR}/PLOT_DAT"
+#Storage of FICVAL outputs
+FICVAL_DIR="${ASCII_DIR}/FICVAL"
+#Storage of PLOT outputs
+PLOT_DIR="${WORKDIR}/PLOT"
+#Directory where AUTOREGRESSION outputs are stored at the end of the simulation:
+AUTOREGRESSION_STORE_DIR="${HOME}/AUTOREGRESSION/${SITE_NAME}_DAT"
+AUTOREGRESSION_BASE_DIR="${HOME}/AUTOREGRESSION"
+#Directory where trends files are stored
+TRENDSDIR="${HOME}/TRENDS"
+#Directory where final outputs for ground parameters are stored (before uploading)
+FINALOUTDIR="${HOME}/OUTPUTS_FINAL"
+#Temporary directory where to store simulation outputs when finished
+PREPARE_DIR="${HOME}/FINISHED_SIM_3dom"
+# Default PGD directory
+PGDDIR="${WORKDIR}/PGD"
+#Directory where prepared namelists go
+PREP_PGDDIR="${PGDDIR}"
+#Directory where topography files are stored
+TOPODIR="${HOME}/TOPOGRAPHY"
+
+#Directory where to store files for the Kalman filter
+FILTERDIR="${HOME}/FILTER"
+
+####################################################################################
+# NAMELIST TEMPLATES
+####################################################################################
+# Namelist directory
+NLDIR="${CONFDIR}/namelist/cen4th"
+# Namelist for prep_list_real
+NLPREP="${NLDIR}/NL_prep_list_real.nl"
+# Namelist for prep_list_real_nest (FILEOUT GENERATION)
+NLPREPNEST="${NLDIR}/NL_prep_list_real_nest.nl"
+# Namelist for prep_list_real_nest (SPAWNING)
+NLPREPSPAWN="${NLDIR}/NL_prep_list_spawn.nl"
+# Namelist for first run (external)
+NLRUN="${NLDIR}/NL_run_FIRST.nl"
+# Namelist for nested run
+NLRUNNEST="${NLDIR}/NL_run_NEST.nl"
+# Namelist for DIAG run
+NLDIAG="${NLDIR}/NL_diag.nl"
+# Namelist for conv2dia
+NLDIRCONV="${NLDIR}/NL_dirconv.nl"
+# Namelist for external pgd level
+NLPGDFIRST="${NLDIR}/NL_pgd_first.nl"
+# Namelist for nested pgds
+NLPGDNEST="${NLDIR}/NL_pgd_nest.nl"
+# Namelist for final PREP_NEST pgd phase
+NLPGDPREPNEST="${NLDIR}/NL_pgd_prep_nest.nl"
+
+####################################################################################
+# MNH EXECUTABLES DEFINITION AND PATH SETTINGS
+####################################################################################
+PATH="$PATH:${MNH_MAIN_PATH}:${MNH_TOOL_PATH}"
+
+EXE_REAL="${MNH_MAIN_PATH}/PREP_REAL_CASE"
+EXE_SPAWNING="${MNH_MAIN_PATH}/SPAWNING"
+EXE_RUN="${MNH_MAIN_PATH}/MESONH"
+EXE_DIAG="${MNH_MAIN_PATH}/DIAG"
+EXE_CONV2DIA="${MNH_TOOL_PATH}/conv2dia"
+EXE_PREP_PGD="${MNH_MAIN_PATH}/PREP_PGD"
+EXE_PREP_NEST_PGD="${MNH_MAIN_PATH}/PREP_NEST_PGD"
+EXE_DIAPROG="${MNH_TOOL_PATH}/diaprog"
+EXE_GRIB_COPY="grib_copy"
+
+#Utilities
+GRIBCOPY="${MNH_GRIBAPI_PATH}/grib_copy"
+
+#Add $UTILDIR to path
+PATH="$PATH:${UTILDIR}"
+
+####################################################################################
+# FILE COMPRESSION AND BACKUP
+####################################################################################
+#Set to 1 to compress (lfiz) output .lfi files, 0 otherwise
+#compress PREP_REAL output
+DOZIPREAL=0
+#compress SIMULATIOn output
+DOZIPOUT=0
+#compress DIAG output
+DOZIPDIAG=0
+

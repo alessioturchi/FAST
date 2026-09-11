@@ -1,0 +1,14 @@
+# LaTeX build artifacts (the compiled PDF itself IS tracked, under manual/)
+manual/*.aux
+manual/*.log
+manual/*.toc
+manual/*.out
+manual/sections/*.aux
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor / OS cruft
+*~
+.DS_Store

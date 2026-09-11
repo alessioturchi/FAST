@@ -1,0 +1,6 @@
+#Isoplanatic angle - integrated variable corrections
+#MULT=multiplicative factor	SUM=Additive factor
+#
+#Only a single line with two numbers
+#MULT	SUM
+1. 0.

@@ -1,0 +1,49 @@
+\subsection{pgd.var}
+\texttt{pgd.var} configures the generation of the static PGD (orography) files by \texttt{pgdgen.sh}
+(Section~\ref{sec:deps-install}). On this deployment it describes a domain hierarchy of up to 4 nested
+levels, even though \texttt{NESTING} (in \texttt{globals.var}) is currently 3: it is \texttt{NESTING}
+that determines how many of those levels \texttt{pgdgen.sh} actually generates, so the file can safely
+carry parameters for one more level than is presently used, ready for a future domain to be enabled.
+
+\begin{lstlisting}
+PGDEXTRACTPT=0/1  : extract latitude/longitude/altitude from the PGD files (only useful
+                    if NESTING>1). [current: 1]
+PGD_PREFIX="string": 3-character site prefix for generated file names.
+                    [current: "${SITE_NAME}"]
+XRPK_VALUE=real   : projection type: 0=Mercator, 1=north polar, -1=south polar (write as
+                    a real number, e.g. "1." not "1"). [current: "0."]
+YCOVER_FILE="string": ground cover file (no extension). [current: "ECOCLIMAP_II_EUROP_V2.3"]
+YCLAY_FILE="string" : clay file (no extension). [current: "CLAY_HWSD_MOY"]
+YSAND_FILE="string" : sand file (no extension). [current: "SAND_HWSD_MOY"]
+XLATCEN_VALUE=real  : latitude of the domain centre (site-specific).
+XLONCEN_VALUE=real  : longitude of the domain centre (site-specific).
+NIMAX_VALUE=integer : outer-domain grid points along X. [current: "80"]
+NJMAX_VALUE=integer : outer-domain grid points along Y. [current: "${NIMAX_VALUE}"]
+XDX_VALUE=meters     : outer-domain grid spacing along X. [current: "10000"]
+XDY_VALUE=meters     : outer-domain grid spacing along Y. [current: "${XDX_VALUE}"]
+\end{lstlisting}
+
+The following are bash arrays. \texttt{YZS\_FILE}/\texttt{YFILETYPE\_VALUE} have one element per
+domain \emph{including} the outer one (element \texttt{0} = outer domain, element \texttt{1} = first
+nested domain, and so on); the other four arrays below have one element per \emph{nested} domain only,
+since the outer domain has no parent to be positioned/scaled against (element \texttt{0} = first
+nested domain, i.e.\ the second domain overall, element \texttt{1} = second nested domain, and so on):
+\begin{lstlisting}
+YZS_FILE[n]="string"        : topography source file (no extension) for domain n+1 (n=0
+                               is the outer domain). Global coverage datasets (e.g.
+                               "gtopo30") are typically used for the outer levels, and a
+                               finer, site-specific high-resolution dataset for the
+                               innermost nested level(s) -- named after the site on this
+                               deployment.
+YFILETYPE_VALUE[n]="string" : Meso-NH file-type keyword matching YZS_FILE[n] (e.g. DIRECT,
+                               LATLON). [current: "DIRECT" for all domains]
+IXOR_PREC[n], IYOR_PREC[n]  : starting grid point (X,Y) of nested domain n+2, expressed on
+                               its parent (preceding) domain grid.
+IXSIZE_VALUE[n],
+IYSIZE_VALUE[n]             : number of grid points of nested domain n+2.
+IDXRATIO_VALUE[n],
+IDYRATIO_VALUE[n]           : grid-refinement ratio of nested domain n+2 with respect to
+                               its parent domain.
+\end{lstlisting}
+These last four arrays only need to change if the domain geometry itself changes (position, extent or
+resolution of a nested domain); doing so requires re-running \texttt{pgdgen.sh}.

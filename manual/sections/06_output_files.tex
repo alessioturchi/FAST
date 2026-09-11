@@ -1,0 +1,61 @@
+\section{GROUND-PARAMETER OUTPUT FILE FORMAT}
+\label{sec:output-files}
+This section documents the format of the per-night ground-parameter ASCII file produced by this
+deployment: written under \texttt{FINALOUTDIR} (Section~\ref{sec:config}) and uploaded by
+\texttt{backup.sh} to the remote output path configured in \texttt{backup.var} (Section~\ref{sec:config}). This is a single, purely deterministic file per night, with no probabilistic
+breakdown; other deployments, delivering to a different downstream consumer with different requirements,
+may need a different output format entirely -- the format below is specific to this configuration's
+\texttt{plot\_python.sh}, not a property of the automation framework itself.
+
+\subsection{File naming and header}
+Each file is named after the date of the relevant night in UT (\texttt{YYYYMMDD}), counting from
+00:00 UT. Every file starts with a 5-line header giving the forecast start date and the dusk/dawn
+times for that night, followed by the column list:
+\begin{lstlisting}
+## OUTPUTS ##
+## DATE_MST(YYYYMMDD)=20200413
+## DUSK (EPOCH)=1586834340
+## DAWN (EPOCH)=1586863209
+## TIME (EPOCH), TIME FROM SIMULATION START(min, UT), TEMPERATURE (K), TEMPERATURE SD (K),
+   WIND SPEED (m/s), WIND SPEED SD (m/s), WIND DIRECTION (deg), WIND DIRECTION SD (deg),
+   RELATIVE HUMIDITY (%), RELATIVE HUMIDITY SD (%), TOTAL SEEING (arcsec),
+   TOTAL SEEING SD (arcsec) ##
+\end{lstlisting}
+(\texttt{DUSK}/\texttt{DAWN} are given in Unix epoch seconds; the last header line has been wrapped
+above only for page width -- it is a single line in the actual file.)
+
+\subsection{Processing}
+\begin{itemize}
+  \item Values are processed with a \textbf{1-hour moving average} and resampled every
+        \textbf{20 minutes}. The reported standard deviation (``SD'') is computed over the 20-minute
+        sampling window \emph{before} the moving average is applied, not over the smoothed series.
+  \item Atmospheric values (temperature, wind, relative humidity) are taken at model level
+        \textbf{K=4}. On this deployment that level was chosen to match the local weather station's
+        reference height (currently configured as an example at \textbf{38--62\,m above ground level});
+        adjust to your own site's instrumentation height. This is the same K=4 level used by the
+        \texttt{WINDSPEEDHIGHLIM} logic (Section~\ref{sec:usage}).
+  \item Total seeing is integrated over \textbf{20--2000\,m above ground level} and calibrated
+        against a local Differential Image Motion Monitor (DIMM).
+\end{itemize}
+
+\subsection{Columns}
+12 space-separated columns:
+\begin{table}[H]
+\centering
+\begin{tabular}{|c|p{10.5cm}|}
+\hline
+\textbf{\#} & \textbf{Column} \\ \hline
+1 & Timestamp, Unix epoch (UT) \\ \hline
+2 & Time from the start of the forecast (00:00 UT), in minutes \\ \hline
+3 & Temperature, K \\ \hline
+4 & Temperature SD, K \\ \hline
+5 & Wind speed, m/s \\ \hline
+6 & Wind speed SD, m/s \\ \hline
+7 & Wind direction (wind blowing from North = 0\textdegree, from East = 90\textdegree), degrees \\ \hline
+8 & Wind direction SD, degrees \\ \hline
+9 & Relative humidity, \% \\ \hline
+10 & Relative humidity SD, \% \\ \hline
+11 & Total seeing, arcsec \\ \hline
+12 & Total seeing SD, arcsec \\ \hline
+\end{tabular}
+\end{table}

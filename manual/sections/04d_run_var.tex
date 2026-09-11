@@ -1,0 +1,110 @@
+\subsection{run.var}
+\texttt{run.var} holds the Meso-NH simulation parameters proper (timestep, nesting, microphysics,
+domain geometry), the plotting height/limit parameters, and the configuration of the DIAG/FICVAL
+extraction (which parameters, at which points/domains/heights, are exported as ASCII for plotting and
+for the short-timescale hand-off). Most variable names mirror the corresponding Meso-NH namelist
+keyword. This file must be sourced after \texttt{times.var}.
+
+\subsubsection{Simulation parameters}
+\begin{lstlisting}
+NUM_PROC=integer   : number of MPI processes for the simulation. [current: 64]
+NAM_SIMU="string"  : 5-character CEXP (Meso-NH experiment name). [current: "${DAY}_${MONTH}"]
+NAM_SEG="string"   : 5-character CSEG (Meso-NH segment name). [current: "y${YEAR}"]
+NMODEL_VAR=integer : number of models/domains, normally equal to NESTING.
+XTSTEP_VAR=seconds : outermost-domain Meso-NH timestep. [current: 12]
+NDTRATIO_ARRAY[n]  : timestep ratio of nested level n+1 with respect to its parent
+                     (element [0]=1 always). [current: 1,2,3,4]
+NDAD_ARRAY[n]      : parent-level index of nested level n+1 (element [0]=1 always).
+                     [current: 1,1,2,3]
+XRIMKMAX[n]        : maximum lateral-relaxation coefficient (1/s) for nested level
+                     n+1; kept hand-tuned rather than auto-computed (a commented-out
+                     auto-generation formula is kept in the file for reference, but is
+                     not used -- it was found to lead to instability).
+                     [current: 0.0006666, 0.0020000, 0.0013333]
+CCLOUD_VAR="string": microphysical scheme. [current: "KESS"]
+CPRESOPT_VALUE="string": pressure solver. [current: "ZRESI"]
+NUMOUTTIMES=integer: number of Meso-NH (.lfi) output times. [current: 15]
+OUTTIMESTEP=seconds: interval between outputs; defaults to EXITSEC from times.var --
+                     changing one without the other causes inconsistencies.
+\end{lstlisting}
+\texttt{XSEGLEN} (total simulated seconds) and the \texttt{XFMOUT[]} array (the list of output times
+themselves) are computed automatically from \texttt{NUMOUTTIMES} and \texttt{OUTTIMESTEP}; they should
+not be edited directly.
+
+\subsubsection{Spatial configuration and coordinates}
+\begin{lstlisting}
+XSNG1="string", YSNG1="string": grid coordinates (I,J) of the first extraction point
+                     (p1.dat). [current: "61","61"]
+XSNG2="string", YSNG2="string": grid coordinates (I,J) of the second extraction point
+                     (p2.dat). [current: "60","61"]
+SEESTPOINT="string" : starting point index for seeing integration (see_p1_v.dat).
+                     [current: "2"]
+DOM_FIRST="string"  : nesting level of the first extraction point (1=outer). [current: "3"]
+DOM_SECOND="string" : nesting level of the second extraction point. [current: "3"]
+SUPCOMP_VAR="F"     : enables supplementary computations; always "F" in operation.
+MESODIAG_VAR="F"    : "F"=normal run, "T"=DIAG-only mode (internal use).
+NKMAX_VALUE="string": number of vertical levels. [current: "54"]
+ZDZGRD_VALUE="string": near-ground vertical mesh size (m). [current: "20"]
+ZDZTOP_VALUE="string": near-top vertical mesh size (m). [current: "600"]
+ZZMAX_STRGRD_VALUE="string": altitude (m) separating the two constant-stretching layers.
+                     [current: "3500"]
+ZSTRGRD_VALUE="string": constant stretching (%) in the lower layer. [current: "20"]
+ZSTRTOP_VALUE="string": constant stretching (%) in the upper layer. [current: "00"]
+\end{lstlisting}
+
+\subsubsection{Plot parameters}
+\begin{lstlisting}
+PLOTBASEH1, PLOTBASEH2 : lower plot height limits (m). [current: 20, 600]
+PLOTTOPH1, PLOTTOPH2   : upper plot height limits (m). [current: 600, 20000]
+CN2H2=meters           : intermediate height limit for CN2/wind/RH plots. [current: 2000]
+MRH2=meters            : intermediate height limit for mixing-ratio plots. [current: 5000]
+CN2_WRESCALE_H=meters  : height above which the wind-gradient correction is applied to
+                          CN2 profiles. [current: 700]
+CN2_ALPHA, CN2_BETA    : coefficients of that correction. [current: 1., 1.5]
+DOM_FIRST_DX,
+DOM_SECOND_DX=km       : grid spacing used for 2D maps (must match the PGD grid).
+                          [current: 0.5, 0.5]
+WINDSPEEDHIGHLIM=m/s   : threshold on the average near-ground (K=4) wind speed, above
+                          which backup.sh still uploads the wind figures/maps even when
+                          full-figure upload is otherwise disabled -- see
+                          Section~\ref{sec:usage}. [current: 8.5]
+\end{lstlisting}
+Changes to this block generally require matching manual edits to \texttt{plot\_python.sh}.
+
+\subsubsection{DIAG/FICVAL extraction parameters}
+These control which parameters are exported by the DIAG/FICVAL phase (\texttt{postproc.sh}), and are
+also the parameters whose file layout \texttt{plot\_python.sh} depends on -- changing them may require
+matching edits there.
+\begin{lstlisting}
+EXTRACTLIST_DOM_FIRST,
+EXTRACTLIST_DOM_SECOND="string": space-separated list of diaprog keywords for 2D ground
+                     maps / point extraction, for DOM_FIRST and DOM_SECOND respectively.
+                     [current: DOM_FIRST carries the full list (wind, SNG, SCI, ISO, CHT,
+                      ECH and 200/10227/9276/6677 m wind levels), DOM_SECOND empty]
+EXTRACTLIST_MULTIHEIGHT="string": keywords extracted as a function of height.
+                     [current: "SNG_STAR_SUP CHT_STAR_SUP"]
+PVLIST_DOM_FIRST,
+PVLIST_DOM_SECOND="string": diaprog keywords for vertical profile extraction.
+                     [current: both empty]
+STARTPV_I[0],STARTPV_J[0]: grid point for the DOM_FIRST-related vertical profile.
+                     [current: 61,61]
+STARTPV_I[1],STARTPV_J[1]: grid point for the DOM_SECOND-related vertical profile.
+                     [current: 51,51]
+CVLIST_DOM_FIRST,
+CVLIST_DOM_SECOND="string": diaprog keywords for vertical cuts. [current: both empty]
+STARTCV_I/J[0], ENDCV_I/J[0]: start/end grid points of the DOM_FIRST-related vertical
+                     cut. [current: (2,61) to (121,61)]
+STARTCV_I/J[1], ENDCV_I/J[1]: start/end grid points of the DOM_SECOND-related vertical
+                     cut. [current: (2,51) to (101,51)]
+NUMLEVELDIAG=integer: number of nesting levels on which DIAG runs. [current: 1]
+DIAGLEVELARRAY[n]   : which nesting level DIAG runs on, for each of the NUMLEVELDIAG
+                     entries. [current: [0]=$DOM_FIRST, [1]=$DOM_SECOND (only [0] used
+                     since NUMLEVELDIAG=1)]
+DIAGINFHEIGHTS[n],
+DIAGSUPHEIGHTS[n]   : space-separated lists of lower/upper integration heights for
+                     DIAGLEVELARRAY[n]; every INF-SUP combination is computed.
+                     [current: [0]="$PLOTBASEH1 $PLOTBASEH2" / "$PLOTTOPH1 $PLOTTOPH2"]
+DOMP1=1, DOMP2=2    : fixed identifiers for the two extraction-point domains; used
+                     elsewhere in plot.sh's domain selection logic and should not be
+                     changed.
+\end{lstlisting}

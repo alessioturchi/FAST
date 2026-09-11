@@ -1,0 +1,218 @@
+#!/bin/bash
+# Here the user should modify the paramters needed for the simulation
+# WARNING!! THIS FILE SHOULD BE SOURCED AFTER times.var
+####################################################################################
+# SIMULATION PARAMETERS
+####################################################################################
+
+#Number of threads used for simulation
+NUM_PROC=64
+#Number of threads used for convert (not used anymore but still in the comments)
+#NUM_PROC_CONVERT=8
+
+#Le nom des fichiers de sortie est construit comme suit : AAAAA.n.BBBBB.mmm
+#ou AAAAA et BBBBB doivent etre composes de 5 caracteres, ils sont specifies
+#dans NAM_CONF sous CEXP et CSEG.  n represente le nombre de modeles imbriques
+#et mmm le numero de la sortie pour chaque segment.
+#We use only one segment, so CEXP=NAM_SIMU and CSEG=NAM_SEGG can be anything provided it's 5 characters
+NAM_SIMU=${DAY}_${MONTH}   #only 5 characters!
+NAM_SEG=y$YEAR             #the same!
+
+#Number of models to consider, usually it is equal to $NESTING in globals.var
+NMODEL_VAR=${NESTING}
+
+# time step outermost domain
+#XTSTEP_VAR=6 #step2
+XTSTEP_VAR=12
+
+#Time step ratio for nested levels. Outermost level (0) usually have NDTRATIO=1
+NDTRATIO_ARRAY[0]=1
+NDTRATIO_ARRAY[1]=2
+NDTRATIO_ARRAY[2]=3
+#NDTRATIO_ARRAY[2]=6
+NDTRATIO_ARRAY[3]=4
+#NDAD ARRAY contains the hierarcy rule between nested levels:
+#The outermost level (0) is father to itself, so NDAD=1
+#The first nested level (1) is typicalli son of the outermos one, so NDAD=1 the same
+#The secon nested level (2) is usually son of the first nested, so NDAD=2, but it can be as well son of the outermost, so in that case we have NDAD=1, and so on...
+NDAD_ARRAY[0]=1
+NDAD_ARRAY[1]=1
+NDAD_ARRAY[2]=2
+NDAD_ARRAY[3]=3
+
+# XRIMKMAX : maximum value in s^-1 of the relaxation coefficient for the lateral
+# relaxation area. This value is applied to all the outermost verticals of the
+# domain if LHO_RELAX.
+# Value is self-generated for automation purpose. 0 is first nested leve, counting onward
+
+#XRIMKMAX[0]=0$(echo "scale=7;1/(100*$XTSTEP_VAR/${NDTRATIO_ARRAY[1]})"|bc -l)
+#NUMTMP=1
+#while [ $NUMTMP -lt $((${#NDAD_ARRAY[@]} -1)) ]; do
+#  XRIMKMAX[$NUMTMP]=0$(echo "scale=7;1/(100*$XTSTEP_VAR/${NDTRATIO_ARRAY[$NUMTMP]}/${NDTRATIO_ARRAY[$((NUMTMP+1))]})"|bc -l)
+#  NUMTMP=$((TMP+1))
+#done
+
+#Value is NOT self-generated because it leads to chaos
+XRIMKMAX[0]=0.0006666
+XRIMKMAX[1]=0.0020000
+XRIMKMAX[2]=0.0013333
+
+
+# microphysical scheme
+CCLOUD_VAR="KESS"
+#Pressure model
+CPRESOPT_VALUE="ZRESI"
+
+# Segment length (in s)
+#XSEGLEN=54000
+# Output times, formatted as a bash array please
+#XFMOUT[0]=3600
+#XFMOUT[1]=7200
+#XFMOUT[2]=10800
+#XFMOUT[3]=14400
+#XFMOUT[4]=18000
+#XFMOUT[5]=21600
+#XFMOUT[6]=25200
+#XFMOUT[7]=28800
+#XFMOUT[8]=32400
+#XFMOUT[9]=36000
+#XFMOUT[10]=39600
+#XFMOUT[11]=43200
+#XFMOUT[12]=46800
+#XFMOUT[13]=50400
+#XFMOUT[14]=54000
+# NUMBER OF OUTPUT TIMES - SCRIPTED - DO NOT EDIT
+#NUMOUTTIMES=${#OUT[@]}
+# YOU COULD ALSO SCRIPT OUT THE WHOLE THING - EASIER?
+NUMOUTTIMES=15
+OUTTIMESTEP=$EXITSEC
+TMPSTART=0
+TMP=0
+while [ $TMP -lt $NUMOUTTIMES ]; do
+  TMPSTART=$(($TMPSTART+$OUTTIMESTEP))
+  XFMOUT[$TMP]=$TMPSTART
+  XSEGLEN=$TMPSTART
+  TMP=$(($TMP+1))
+done
+
+####################################################################################
+# SIMULATION SPATIAL CONFIGURATION AND COORDINATES
+####################################################################################
+# 1st grid point coordinates:
+XSNG1="61"
+YSNG1="61"
+# 2nd grid point coordinates:
+XSNG2="60"
+YSNG2="61"
+# Point were to start seeing integration see_p1_v.dat:
+SEESTPOINT="2"
+# Domain were computation of point 1 takes place, 1 is outer, 2-> is nesting
+DOM_FIRST="3"
+# Domain were computation of point 2 takes place, 1 is outer, 2-> is nesting
+DOM_SECOND="3"
+# Activation of supplementary computations, always F.
+SUPCOMP_VAR="F"
+# logical to discriminate between DIAG and MESONH runs, F=RUN T=DIAG
+MESODIAG_VAR="F"
+
+#Number of levels and stretching from ground level
+NKMAX_VALUE="54"
+#!MOD
+#NKMAX_VALUE="80"
+ZDZGRD_VALUE="20"
+ZDZTOP_VALUE="600"
+ZZMAX_STRGRD_VALUE="3500"
+ZSTRGRD_VALUE="20"
+#!MOD
+#ZSTRGRD_VALUE="15"
+ZSTRTOP_VALUE="00"
+
+####################################################################################
+# PLOT PARAMETERS
+#!WARNING! Changes in this section will probably force you to manually edit plot.sh
+####################################################################################
+#Height limits for plotting, in meters.
+#FIRST BASE HEIGHT
+PLOTBASEH1=20
+#SECOND BASE HEIGHT
+PLOTBASEH2=600
+#FIST TOP HEIGHT
+PLOTTOPH1=600
+#SECOND TOP HEIGHT
+PLOTTOPH2=20000
+
+#CN2 INTERMEDIATE LIMITS (PLOTBASEH1-CN2H2) - ALSO USED FOR WIND AND RH INTERMEDIATE LIMITS
+CN2H2=2000
+
+#MR INTERMEDIATE LIMITS (PLOTBASEH1-MRH2)
+MRH2=5000
+
+#FROM THIS HEIGHT (a.g.l.) WE START TO APPLY THE WIND GRADIENT CORRECTION TO THE CN2 PROFILES
+CN2_WRESCALE_H=700
+#CORECTIONS DEPEND ON ALPHA AND BETA
+CN2_ALPHA=1.
+CN2_BETA=1.5
+
+#DELTAX for 2d MAPS, in Km
+#The following parameters change only if you change the PGD files, so I select
+#them by hand.
+DOM_FIRST_DX=0.5
+DOM_SECOND_DX=0.5
+
+#WIND SPEED LIMIT (m/s) for overwriting plots after second 4dom run (see plot.sh and backup.sh)
+WINDSPEEDHIGHLIM=8.5
+####################################################################################
+# DIAG EXTRACTION PARAMETERS
+#!WARNING! Changes in this section will probably force you to manually edit plot.sh
+####################################################################################
+#Extract parameters for EXTRACT FICVAL phase
+#EXTRACTLIST="UT_K_2 VT_K_2 UT_PR_200 VT_PR_200 SNG SCI ISO CHT ECH"
+EXTRACTLIST_DOM_SECOND=""
+EXTRACTLIST_DOM_FIRST="UT_K_2 VT_K_2 SNG SCI ISO CHT ECH UT_PR_200 VT_PR_200 UT_Z_10227 VT_Z_10227 UT_Z_9276 VT_Z_9276 UT_Z_6677 VT_Z_6677"
+EXTRACTLIST_MULTIHEIGHT="SNG_STAR_SUP CHT_STAR_SUP"
+#Extract parameters for vertical profiles
+#PVLIST_DOM_SECOND="MUTVT THM"
+PVLIST_DOM_SECOND=""
+PVLIST_DOM_FIRST=""
+#Start point for vertical profiles, 0 is astrodomain, 1 is atmodomain
+STARTPV_I[0]=61
+STARTPV_J[0]=61
+STARTPV_I[1]=51
+STARTPV_J[1]=51
+#Extract parameters for vertical CUTS
+#CVLIST_DOM_SECOND="MUTVT"
+#CVLIST_DOM_FIRST="CN2"
+CVLIST_DOM_SECOND=""
+CVLIST_DOM_FIRST=""
+#Start and end points for vertical cuts, 0 is astrodomain, 1 is atmodomain
+STARTCV_I[0]=2
+STARTCV_J[0]=61
+ENDCV_I[0]=121
+ENDCV_J[0]=61
+STARTCV_I[1]=2
+STARTCV_J[1]=51
+ENDCV_I[1]=101
+ENDCV_J[1]=51
+
+#Execute DIAG phase only on certain levels, with certain parameters
+#(outer layer=1, firtst nested level=2, etc...)
+#Total number of levels on which to execute the DIAG phase:
+NUMLEVELDIAG=1
+#ARRAY listing the specific levels, ordered as you choose:
+DIAGLEVELARRAY[0]=$DOM_FIRST
+DIAGLEVELARRAY[1]=$DOM_SECOND
+#Heights where to integrate parameters, ordered the same as the DIAGLEVELARRAY array
+#Heights are specifified as INF and SUP lists, where all the linear combinations
+#of INFs and SUPs are performed, for each level:
+#!! WARNING !! Due to a limitation in MNH file handling, changing a value here
+#!! will mean to change also the plot section of run.sh
+DIAGINFHEIGHTS[0]="$PLOTBASEH1 $PLOTBASEH2"
+DIAGINFHEIGHTS[1]="$PLOTBASEH1"
+DIAGSUPHEIGHTS[0]="$PLOTTOPH1 $PLOTTOPH2"
+DIAGSUPHEIGHTS[1]="$PLOTTOPH2"
+
+#Points used for different kind of analysis. Never change them, else you scramble the domain selection in plot section of run.sh.
+# 1 is p1
+# 2 is p2
+DOMP1=1
+DOMP2=2

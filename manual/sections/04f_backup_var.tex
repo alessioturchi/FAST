@@ -1,0 +1,59 @@
+\subsection{backup.var}
+\texttt{backup.var} configures what gets preserved/uploaded at the end of a run and where.
+
+\subsubsection{Upload / backup switches}
+\begin{lstlisting}
+UPLOAD=0/1     : upload figures/ASCII outputs to the remote server(s). [current: 1]
+ARUPLOAD=0/1   : rsync the AUTOREGRESSION hand-off directory to the short-timescale
+                 component's host(s) at the end of run.sh, if that component is in use
+                 on this deployment. [current: 1]
+BACKUP=0/1     : perform the local backup of output files. [current: 1]
+BACKUPFIGURES=0/1: keep a local mirror of the delivered figures. [current: 1]
+\end{lstlisting}
+
+\subsubsection{Backup parameters}
+\begin{lstlisting}
+TAIL_DIR="string"   : suffix appended to the per-night backup directory name. The
+                      checked-in value is a short project tag inherited from this
+                      codebase's origin; edit to identify your own deployment.
+BACKUP_DIR="string" : root of the local ASCII/plot backup. [current: "${HOME}/BACKUP_OUTPUT"]
+BACKUP_FIGURES_DIR="string": root of the local figures mirror.
+                      [current: "${HOME}/BACKUP_FIGURES"]
+BACKUP_REAL, BACKUP_RUN,
+BACKUP_DIAG=0/1     : whether to keep, respectively, the PREP_REAL / EXE(RUN) / DIAG
+                      binary output in the per-night backup (rather than discarding it).
+                      [current: 0, 0, 0]
+BACKUP_MNHDAT=0/1   : keep the ASCII (.dat, FICVAL, AUTOREGRESSION) postprocessing
+                      output. [current: 1]
+BACKUP_POSTPROC=0/1 : keep the ASCII+PLOT postprocessing output tree. [current: 1]
+BACKUP_LOG=0/1      : keep the run's log directory (required for backup.sh to be able
+                      to relocate its own log paths correctly at the end of the run).
+                      [current: 1]
+\end{lstlisting}
+The corresponding \texttt{BACKUP\_*\_NAME} variables are the actual destination paths, all built from
+\texttt{BACKUP\_BASE\_NAME} (itself \texttt{BACKUP\_DIR/<date><TAIL\_DIR>\_<N>DOM\_<MESONH version>});
+they are not normally edited directly.
+
+\subsubsection{Remote host parameters}
+\begin{lstlisting}
+DAYSTARTBEFORE=integer (negative): how many days before the forecast date the simulation
+                      started; used to locate the right backup sub-directory.
+                      [current: -1]
+REMOTE_USER="string", REMOTE_HOST="string": account/host of the primary remote output
+                      server. Placeholder values in the checked-in file -- must be
+                      filled in for your own deployment.
+REMOTE_USER_BK="string", REMOTE_HOST_BK="string": account/host of the redundant backup
+                      remote server. Also placeholders in the checked-in file.
+REMOTE_PATH_ARCHIVE="string", REMOTE_PATH_OUTPUTS_GROUND="string": upload paths on the
+                      primary server for figures and ground-parameter ASCII output
+                      respectively (trailing slash required). The checked-in values
+                      still point at a path tree named after this codebase's origin;
+                      edit to match your own server layout.
+REMOTE_PATH_ARCHIVE_BK="string",
+REMOTE_PATH_OUTPUTS_GROUND_BK="string": matching upload paths on the backup server.
+REMOTE_AR="string", REMOTE_AR_BK="string": address(es) of the short-timescale
+                      component's hand-off host(s), if that component is deployed;
+                      the AUTOREGRESSION directory is rsynced there at the end of
+                      run.sh. Placeholders in the checked-in file.
+REMOTE_PATH_AUTOREG="string": remote path (trailing slash) for that hand-off rsync.
+\end{lstlisting}

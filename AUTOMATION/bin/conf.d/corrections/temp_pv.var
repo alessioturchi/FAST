@@ -1,0 +1,6 @@
+#Absolute Temperature - Vertical Profile corrections
+#MULT=multiplicative factor	SUM=Additive factor
+#START=Starting height of correction(m)	END=Final height of correction(m)
+#Multiple lines for multiple layers
+#MULT	SUM	START	END
+1. 0. 0 30000

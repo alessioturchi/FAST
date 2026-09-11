@@ -1,0 +1,263 @@
+#!/bin/bash
+# Here the user should modify the paramters related to simulation times
+####################################################################################
+# DATE AND TIME
+####################################################################################
+YEAR=$(date +%Y)
+MONTH=$(date +%m)
+DAY=$(date +%d)
+#Overwriting variables for debug
+YEAR=SET_THE_DATE_YEAR
+MONTH=SET_THE_DATE_MONTH
+DAY=SET_THE_DATE_DAY
+
+#The hour at which the forecast is computed
+FRCSTDATECOMPUTED=12
+#The number of hours in the future for which the first forecast grib file is referring to, from the date where it is computed (e.g. computed at 12UT day j-2 for 00UT day j --> FORWARDFRCSTDATEPLUS=36
+FORWARDFRCSTDATEPLUS=12
+
+#If the date of the figures refers to the start of the night in localtime set DATEFIGLT=1
+#If the date of the figures refers to the UT date of the end of the night then set DATEFIGLT=0
+DATEFIGLT=1
+
+#How many hours we have to shift the plot time axis, with respect to the UT midnight, in order to fit with the start of the simulation. E.G. The simulation starts 18UT of day before --> HOUR_SHIFT_PLOT=-6
+HOUR_SHIFT_PLOT=0
+
+#UTOFFSET is the offset of localtime from UT in hours
+UTOFFSET=-7
+
+# List of selected hours for forcing. Remember that corresponding ecmwf files must exist
+HOUR_LIST="00 06 12 18"
+
+#Hour of the day at which forecast file should arrive (UTC time)
+TIMESEND=18
+#TIME LIMIT - in seconds
+#If init files do not arrive within $TIMELIMIT seconds from the start of the simulation, we abort the whole thing
+TIMELIMIT=10800
+
+#The timestep in minutes between exits of MESO-NH
+#!! WARNING !! If you change this please also take a look at run.var
+EXITSEC=3600
+EXITMIN=$((EXITSEC/60))
+
+####################################################################################
+# PLOT PARAMETERS
+####################################################################################
+#Time Tranches for plotting, in minutes
+#If SEASONSPLOT=1 limits are overwritten
+#Start hour and corresponding meso-nh exit
+PLOTSTARTT=2
+PLOTSTARTEXIT=002
+#First intermidiate hour
+PLOTFIRSTT=360
+PLOTFIRSTEXIT=005
+#Second intermediate hour
+PLOTSECONDT=540
+PLOTSECONDEXIT=009
+#End hour
+PLOTENDT=900
+PLOTENDEXIT=012
+#Set the months that divide between winter and summer
+FIRSTMONTH=04
+LASTMONTH=09
+#EMISPHERE=1 the northern one or EMISPHERE=-1 for the southern one
+EMISPHERE=1
+
+#IF SEASONSPLOT is set to 1 the above plot intervals are overwritten by seasonal limits set below in this file
+SEASONSPLOT=1
+
+#UPLOADFIGS controls the need to upload the figures at the end of the run
+#This is not the real upload flag, that is in backup.var
+#This is used to communicate to the automation script that a previous simulation already
+#ended and there is need to do something different this time
+#AS now, this control in backup.sh the update of the wind speed plots at ground.
+#If UPLOADFIGS=1 all figures are uplaoded
+#If UPLOADFIGS=0 only wind speed figures are uploaded
+UPLOADFIGS=SET_THE_UPLOADFIGS
+
+####################################################################################
+# FROM HERE ONWARD YOU SHOULDN'T MODIFY ANYTHING. IF YOU DO, PLEASE BE CAREFUL
+# EVERYTHING IS SCRIPTED, SO IT SHOULD WORK AUTOMAGICALLY
+####################################################################################
+FORWARDOFFSET=0
+TMP=$((FORWARDFRCSTDATEPLUS+FRCSTDATECOMPUTED))
+while [ $TMP -ge 24 ]; do
+  TMP=$((TMP-24))
+  #The number of days in the future for which the forecast grib file is referring to (0 if analysis). This is the FIRST grib file  
+  FORWARDOFFSET=$((FORWARDOFFSET+1))
+done
+
+if [ ${PARSEBACKUP} -eq 1 ]; then
+    #Set date to the stored one
+    YEAR=$(cat "${DATE_LASTLOG}" |grep YEAR|cut -d"=" -f2)
+    MONTH=$(cat "${DATE_LASTLOG}" |grep MONTH|cut -d"=" -f2)
+    DAY=$(cat "${DATE_LASTLOG}" |grep DAY|cut -d"=" -f2)
+fi
+HOUR_ARRAY=($HOUR_LIST)
+NUMHOURS="${#HOUR_ARRAY[@]}"
+
+#Get the hour names for the prep real scripts
+TMP=0
+DAYJUMP=0
+while [ $TMP -lt $NUMHOURS ]; do
+  HOUR_ARRAY_REALNAMES[$TMP]=$((${HOUR_ARRAY[$TMP]} + ${FORWARDFRCSTDATEPLUS}))
+  TMP=$(($TMP+1))
+  if [ $TMP -lt $((NUMHOURS -1)) ]; then
+    if [ $((${HOUR_ARRAY[$TMP]}-${HOUR_ARRAY[$((TMP-1))]})) -lt 0 ]; then
+      DAYJUMP=$((DAYJUMP+1))
+    fi
+  fi
+done
+
+#Compute the day for which forecasts are performed
+DAYFORWARD=$(echo "scale=0;${HOUR_ARRAY[$((NUMHOURS-1))]}/24"|bc -l)
+TIMEINIT=$((DAYFORWARD+FORWARDOFFSET))
+TIMEINIT=$((TIMEINIT*86400))
+DAYFORWARD=$((DAYFORWARD+FORWARDOFFSET+DAYJUMP))
+TIMEFORWARD=$((DAYFORWARD*86400))
+
+#The following computes the day at noon (12:00:00) in UNIX TIME, then adds two days and then...
+DATEUNIXNOON=$(date -u -d "${YEAR}-${MONTH}-${DAY} 12:00:00" +%s)
+#DAYF is the date for which the forecast is performed
+DAYF=$(date -u -d @$((DATEUNIXNOON + TIMEFORWARD)) +%d)
+MONTHF=$(date -u -d @$((DATEUNIXNOON + TIMEFORWARD)) +%m)
+YEARF=$(date -u -d @$((DATEUNIXNOON + TIMEFORWARD)) +%Y)
+#DAYB is the starting day for the forecast, since sometime it may start the day before DAYF
+DAYB=$(date -u -d @$((DATEUNIXNOON + TIMEINIT)) +%d)
+MONTHB=$(date -u -d @$((DATEUNIXNOON + TIMEINIT)) +%m)
+YEARB=$(date -u -d @$((DATEUNIXNOON + TIMEINIT)) +%Y)
+#The very same time, in EPOCH time
+DATESTARTDAYBUNIX=$(date -u -d "${YEARB}-${MONTHB}-${DAYB} ${HOUR_ARRAY[0]}:00:00" +%s)
+
+####################################################################################
+# EPHEMERIDS
+####################################################################################
+if [ ${PARSEBACKUP} -eq 0 ]; then
+
+  [ $GENERATELIST -eq 0 ] && log "YEAR=$YEAR - MONTH=$MONTH - DAY=$DAY"
+  [ $GENERATELIST -eq 0 ] && log "HOUR_LIST=$HOUR_LIST"
+
+  #Rescale the hourlist in order to be in the right range for the date command.
+  TMP=0
+  while [ $TMP -lt $NUMHOURS ]; do
+    if [ ${HOUR_ARRAY[$TMP]} -gt 24 ]; then
+      HOURLIST_24[$TMP]=$((${HOUR_ARRAY[$TMP]}-24))
+    else
+      HOURLIST_24[$TMP]=${HOUR_ARRAY[$TMP]}
+    fi
+    TMP=$(($TMP+1))
+  done
+
+  DAYINITFIGURES=0
+  UTOFFSETSECONDS=$((UTOFFSET*3600))
+  #compute ephemerids
+  SUNSETUNIX=$(date -u -d "$(${PYTHONEXE} ${UTILDIR}/Sunset.py -y ${YEARB} -m ${MONTHB} -d ${DAYB})" +%s)
+  if [ $SUNSETUNIX -lt $DATESTARTDAYBUNIX ]; then
+    SUNSETUNIX=$(date -u -d "$(${PYTHONEXE} ${UTILDIR}/Dusk.py -y ${YEARF} -m ${MONTHF} -d ${DAYF})" +%s)
+    SUNSETUNIXLT=$((SUNSETUNIX + UTOFFSETSECONDS))
+  fi
+  SUNSETUNIXLT=$((SUNSETUNIX + UTOFFSETSECONDS))  
+  DUSKUNIX=$(date -u -d "$(${PYTHONEXE} ${UTILDIR}/Dusk.py -y ${YEARB} -m ${MONTHB} -d ${DAYB})" +%s)
+  if [ $DUSKUNIX -lt $DATESTARTDAYBUNIX ]; then
+    DUSKUNIX=$(date -u -d "$(${PYTHONEXE} ${UTILDIR}/Dusk.py -y ${YEARF} -m ${MONTHF} -d ${DAYF})" +%s)
+  fi
+  DAWNUNIX=$(date -u -d "$(${PYTHONEXE} ${UTILDIR}/Dawn.py -y ${YEARF} -m ${MONTHF} -d ${DAYF})" +%s)
+  SUNRISEUNIX=$(date -u -d "$(${PYTHONEXE} ${UTILDIR}/Sunrise.py -y ${YEARF} -m ${MONTHF} -d ${DAYF})" +%s)
+  [ $GENERATELIST -eq 0 ] && log "SUNSET IS AT:            $(date -u -d @${SUNSETUNIX} +%F/%T)"
+  [ $GENERATELIST -eq 0 ] && log "ASTRONOMICAL DUSK IS AT: $(date -u -d @${DUSKUNIX} +%F/%T)"
+  [ $GENERATELIST -eq 0 ] && log "ASTRONOMICAL DAWN IS AT: $(date -u -d @${DAWNUNIX} +%F/%T)"
+  [ $GENERATELIST -eq 0 ] && log "SUNRISE is AT:           $(date -u -d @${SUNRISEUNIX} +%F/%T)"
+  [ $GENERATELIST -eq 0 ] && log "SIMULATION STARTS AT:    $(date -u -d @${DATESTARTDAYBUNIX} +%F/%T)"
+  #DAWN and DUSKMINDELTA are the offsets in minutes for the placing of DAWN and DUSK with respect to the start of the simulation
+  DAWNMINDELTA=$((DAWNUNIX-DATESTARTDAYBUNIX))
+  DAWNMINDELTA=$((DAWNMINDELTA/60))
+  DUSKMINDELTA=$((DUSKUNIX-DATESTARTDAYBUNIX))
+  DUSKMINDELTA=$((DUSKMINDELTA/60))
+  SUNRISEMINDELTA=$((SUNRISEUNIX-DATESTARTDAYBUNIX))
+  SUNRISEMINDELTA=$((SUNRISEMINDELTA/60))
+  SUNSETMINDELTA=$((SUNSETUNIX-DATESTARTDAYBUNIX))
+  SUNSETMINDELTA=$((SUNSETMINDELTA/60))
+fi
+
+#Set the date of the figure
+if [ $DATEFIGLT -eq 1 ]; then
+  DAYFIG=$(date -u -d @$SUNSETUNIXLT +%d)
+  MONTHFIG=$(date -u -d @$SUNSETUNIXLT +%m)
+  YEARFIG=$(date -u -d @$SUNSETUNIXLT +%Y)
+else
+  DAYFIG=$DAYF
+  MONTHFIG=$MONTHF
+  YEARFIG=$YEARF
+fi
+
+####################################################################################
+# SEASONAL PLOT LIMITS
+####################################################################################
+if [ ${PARSEBACKUP} -eq 0 ]; then
+
+  if [ $SEASONSPLOT -eq 1 ]; then
+  #Compute start end end of plots based on the current season
+    if [ $MONTHF -ge $FIRSTMONTH ] && [ $MONTHF -le $LASTMONTH ]; then
+      SUMMER=1
+    else
+      SUMMER=0
+    fi
+    #If we are on the south emisphere reverse the seasons
+    SUMMER=$(($SUMMER*$EMISPHERE))
+    #Set limits for plots
+    PLOTSTARTT=${SUNSETMINDELTA}
+    PLOTENDT=${SUNRISEMINDELTA}
+    PLOTDUSK=${DUSKMINDELTA}
+    PLOTDAWN=${DAWNMINDELTA}
+    #We approximate the start exit to the next exit after the limit. Used for maps
+    PLOTSTARTEXIT=$(($DUSKMINDELTA/$EXITMIN +1))
+    #We approximate the end exit to the exit just before the limit. Used for maps
+    PLOTENDEXIT=$(($DAWNMINDELTA/$EXITMIN))
+    if [ $SUMMER -eq 1 ]; then
+      PLOTFIRSTT=370
+      PLOTSECONDT=530
+    else
+      PLOTFIRSTT=330
+      PLOTSECONDT=570
+    fi
+    #Same with the intermediate exits
+    PLOTFIRSTEXIT=$(($PLOTFIRSTT/$EXITMIN))
+    PLOTSECONDEXIT=$(($PLOTSECONDT/$EXITMIN))
+
+    #Here we rescale the names since the arithmetic expansion removed the trailing zeros. We have to put them back in order to have a three characters variable
+    TMPARRAY="${PLOTSTARTEXIT} ${PLOTFIRSTEXIT} ${PLOTSECONDEXIT} ${PLOTENDEXIT}"
+    TMPARRAY=($TMPARRAY)
+    TMPWHILE=0
+    while [ $TMPWHILE -lt ${#TMPARRAY[@]} ]; do
+      if [ ${TMPARRAY[$TMPWHILE]} -le 99 ]; then
+        if [ ${TMPARRAY[$TMPWHILE]} -le 9 ]; then
+          CHARCFR="00"
+          CUTOFF=2
+        else
+          CHARCFR="0"
+          CUTOFF=1
+        fi
+        TMPWHILE2=0
+        while [ "$(echo ${TMPARRAY[$TMPWHILE]}|cut -c-${CUTOFF})" != "${CHARCFR}" ]; do
+          TMPARRAY[$TMPWHILE]="0${TMPARRAY[$TMPWHILE]}"
+          TMPWHILE2=$(($TMPWHILE2+1))
+          if [ $TMPWHILE2 -gt $CUTOFF ]; then
+            error "!!! filedef.var: SOMETHING WENT WRONG HERE WHILE ADDING TRAILING ZEROS TO EXIT FILES SUFFIXES"
+          fi
+        done
+      fi
+      TMPWHILE=$(($TMPWHILE+1))
+    done
+
+    if [ $PLOTSECONDT -ge $PLOTENDT ]; then
+      error "!!! ERROR: Sunrise is earlier than PLOTSECONDT"
+    fi
+    if [ $PLOTFIRSTT -le $PLOTSTARTT ]; then
+      error "!!! ERROR: Sunset is later than PLOTFIRSTT"
+    fi
+  else
+    #Set defaults for dawn and dusk starts
+    PLOTDUSK=${PLOTSTARTT}
+    PLOTDAWN=${PLOTENDT}
+  fi
+fi

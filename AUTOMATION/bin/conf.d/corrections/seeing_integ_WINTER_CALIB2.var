@@ -1,0 +1,6 @@
+#Seeing - integrated variable corrections
+#MULT=multiplicative factor	SUM=Additive factor
+# WINTER CALIB2 CORRECTION = 1./0.923
+#Only a single line with two numbers
+#MULT	SUM
+1. 0.

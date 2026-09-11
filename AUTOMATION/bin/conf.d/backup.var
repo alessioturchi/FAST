@@ -1,0 +1,75 @@
+#!/bin/bash
+# Viables for remote upload
+####################################################################################
+# UPLOAD SWITCH
+####################################################################################
+#Upload files to website? 0 or 1
+UPLOAD=1
+#Upload AR files? 0 or 1
+ARUPLOAD=1
+
+####################################################################################
+# BACKUP SWITCH
+####################################################################################
+#Performs backup of output files? 0 or 1
+BACKUP=1
+
+#Is there need to create a local backup for figures?
+BACKUPFIGURES=1
+
+####################################################################################
+# BACKUP PARAMETERS
+####################################################################################
+#Add a suffix to the backup directory
+TAIL_DIR="_site"
+#Backup directory - no trailing slash please
+BACKUP_DIR="${HOME}/BACKUP_OUTPUT"
+#Backup directory for figures - no trailing slash please
+BACKUP_FIGURES_DIR="${HOME}/BACKUP_FIGURES"
+
+BACKUP_REAL=0
+BACKUP_BASE_NAME="${BACKUP_DIR}/${YEARB}${MONTHB}${DAYB}${TAIL_DIR}_${NESTING}DOM_${MESONH_PERSO_VERSION}"
+BACKUP_REAL_NAME="${BACKUP_BASE_NAME}/REAL"
+BACKUP_RUN=0
+BACKUP_RUN_NAME="${BACKUP_BASE_NAME}/RUN"
+BACKUP_DIAG=0
+BACKUP_DIAG_NAME="${BACKUP_BASE_NAME}/DIAG"
+BACKUP_MNHDAT=1
+BACKUP_MNHDAT_NAME="${BACKUP_BASE_NAME}/OUTPUT_MNH_ASCII"
+BACKUP_MNHDAT_NAME_DAT="${BACKUP_MNHDAT_NAME}/DAT"
+BACKUP_MNHDAT_NAME_FICVAL="${BACKUP_MNHDAT_NAME}/FICVAL"
+BACKUP_MNHDAT_NAME_AUTOREGRESSION="${BACKUP_MNHDAT_NAME}/AUTOREGRESSION"
+BACKUP_POSTPROC=1
+BACKUP_POSTPROC_NAME="${BACKUP_BASE_NAME}/OUTPUT_POSTPROC"
+BACKUP_POSTPROC_NAME_ASCII="${BACKUP_POSTPROC_NAME}/ASCII"
+BACKUP_POSTPROC_NAME_PLOT="${BACKUP_POSTPROC_NAME}/PLOT"
+#If you don't backup LOGS then prepare_site.sh and backup.sh cannot run
+BACKUP_LOG=1
+BACKUP_LOG_NAME="${BACKUP_BASE_NAME}/LOGS_${YEAR}${MONTH}${DAY}"
+
+####################################################################################
+# REMOTE HOST PARAMETERS
+####################################################################################
+#How may days before did the simulation start? - Negative number
+DAYSTARTBEFORE=-1
+# Remote USERNAME
+REMOTE_USER="XXXX"
+# Remote HOSTNAME
+REMOTE_HOST="XXX.com or IP address"
+#Backup server
+REMOTE_USER_BK="XXXX"
+REMOTE_HOST_BK="XXX.com or IP address"
+# Remote upload path. Please add trailing slash
+REMOTE_PATH_ARCHIVE="/aogroup/WWW-SITE/forecast/ARCHIVE/"
+# Remote outputs path. Please add trailing slash
+REMOTE_PATH_OUTPUTS_GROUND="/aogroup/WWW-SITE/outputs/OUTPUTS_ASCII/"
+
+REMOTE_PATH_ARCHIVE_BK="/aogroup/WWW-SITE/forecast/ARCHIVE/"
+REMOTE_PATH_OUTPUTS_GROUND_BK="/aogroup/WWW-SITE/outputs/OUTPUTS_ASCII/"
+
+# Remote host AR (main host)
+REMOTE_AR="IP ADDRESS"
+# Remote host AR (backup host)
+REMOTE_AR_BK="IP ADDRESS"
+# Remote AR path, please add trailing slash
+REMOTE_PATH_AUTOREG="/home/automation/AUTOREGRESSION/"
