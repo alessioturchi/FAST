@@ -99,3 +99,10 @@ Also available on arXiv: [arXiv:2412.05048](https://arxiv.org/abs/2412.05048).
 This is research-support software developed and operated in-house; it is shared as-is,
 without a support commitment. Issues and pull requests are welcome, but response times may
 vary.
+
+## License
+
+Copyright © 2026 Alessio Turchi.
+
+Licensed under the GNU General Public License v3.0 — see [`LICENSE.txt`](LICENSE.txt) for
+the full text.
