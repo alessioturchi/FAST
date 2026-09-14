@@ -102,7 +102,7 @@ vary.
 
 ## License
 
-Copyright © 2026 Alessio Turchi.
+Copyright © 2015-2026 Alessio Turchi.
 
 Licensed under the GNU General Public License v3.0 — see [`LICENSE.txt`](LICENSE.txt) for
 the full text.
