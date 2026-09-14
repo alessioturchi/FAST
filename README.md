@@ -67,6 +67,33 @@ manual/                    the automation manual (LaTeX source + compiled PDF)
 Configuration is entirely file-based under `AUTOMATION/bin/conf.d/*.var` — see the manual
 for what each file and parameter does before editing anything.
 
+## Citation
+
+If you use this software, please cite:
+
+> A. Turchi, E. Masciadri, L. Fini, "FAST: a software suite for automatic weather and
+> optical turbulence forecast on ground-based telescope sites," Proc. SPIE 13101, Software
+> and Cyberinfrastructure for Astronomy VIII, 1310134 (25 July 2024).
+> https://ui.adsabs.harvard.edu/link_gateway/2024SPIE13101E..34T/doi:10.1117/12.3018842
+
+Also available on arXiv: [arXiv:2412.05048](https://arxiv.org/abs/2412.05048).
+
+```bibtex
+@inproceedings{turchi2024fast,
+  author    = {Turchi, Alessio and Masciadri, Elena and Fini, Luca},
+  title     = {{FAST}: a software suite for automatic weather and optical turbulence
+               forecast on ground-based telescope sites},
+  booktitle = {Software and Cyberinfrastructure for Astronomy VIII},
+  editor    = {Ibsen, Jorge and Chiozzi, Gianluca},
+  series    = {Proc. SPIE},
+  volume    = {13101},
+  pages     = {1310134},
+  year      = {2024},
+  doi       = {10.1117/12.3018842},
+  url       = {https://ui.adsabs.harvard.edu/link_gateway/2024SPIE13101E..34T/doi:10.1117/12.3018842}
+}
+```
+
 ## Status
 
 This is research-support software developed and operated in-house; it is shared as-is,
